@@ -320,4 +320,6 @@ CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍�
 
 完成条件：Core/Service/IPC/Preload/Renderer 与直达页面测试通过；最终 `.app` 输出 `WORKSPACE_COMMAND_CENTER VERIFIED`；隐私门禁、全套本地验证和公开 Intel CI 均成功。
 
-本地实现状态：78 个测试文件 / 259 项测试、生产构建、CLI、arm64 DMG/ZIP、包验证和 packaged E2E 已通过；最终项目 revision 15、GUI/CLI v2 包逐字一致，`artifacts/packaged-app-e2e-command-center.png` 已人工复核。公开 Intel CI 证据在实现提交同步后补记。
+实现状态：78 个测试文件 / 259 项测试、生产构建、CLI、arm64/x64 DMG/ZIP、包验证和 packaged E2E 已在本机与公开 Intel CI 通过；最终项目 revision 15、GUI/CLI v2 包逐字一致，`artifacts/packaged-app-e2e-command-center.png` 已人工复核。
+
+远程证据：私有实现提交 `ef4961d` 与公开实现提交 `d1d374e` 共享 tree `dc5ad74015c9da7f27912ff4bd5a9b2d24c79396`；公开 GitHub macOS CI run `32442138733` 成功，完成 Intel x64 项目检查、应用打包、包验证、工作区命令中心 packaged E2E 与无凭证 release dry-run。
