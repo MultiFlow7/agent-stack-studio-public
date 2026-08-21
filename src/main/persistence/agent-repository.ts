@@ -232,6 +232,13 @@ export class AgentRepository {
     const parsed = updateAgentInputSchema.parse(input)
     const timestamp = new Date().toISOString()
     const current = this.getDetail(parsed.id)
+    if (
+      current.agent.name === parsed.name &&
+      current.agent.description === parsed.description &&
+      current.agent.executionMode === parsed.executionMode
+    ) {
+      return current
+    }
     const nextRevision = current.draft.revision + 1
 
     this.#database.exec('BEGIN IMMEDIATE')

@@ -111,6 +111,7 @@ export class RunService {
   cancel(runId: string): RunDetail {
     const run = this.#repository.get(runId)
     if (terminalStatuses.has(run.status)) return this.#repository.getDetail(runId)
+    if (run.status === 'cancelling') return this.#repository.getDetail(runId)
     this.#repository.updateStatus(runId, 'cancelling')
     this.#repository.addEvent(runId, {
       type: 'cancel-requested',
@@ -187,10 +188,10 @@ export class RunService {
           details: {},
         })
       }
-    } catch (error) {
+    } catch {
       const current = this.#repository.get(runId)
       if (terminalStatuses.has(current.status)) return
-      const message = error instanceof Error ? error.message : 'Runtime 执行失败。'
+      const message = 'Runtime 执行失败，未保存内部错误细节。'
       this.#repository.updateStatus(runId, 'failed', {
         finishedAt: new Date().toISOString(),
         failure: { code: 'RUNTIME_FAILED', message },

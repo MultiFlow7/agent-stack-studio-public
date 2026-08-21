@@ -9,7 +9,7 @@ import {
   WarningCircle,
   XCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { Agent } from '../../../shared/agent'
 import type { RunHistoryDetail, RunRecord } from '../../../shared/run'
 import { localExecutionModeDescriptions } from '../../../shared/trusted-execution'
@@ -72,29 +72,38 @@ export function RunsView({ agentId, runId }: RunsViewProps) {
   const [error, setError] = useState<string>()
   const [isStarting, setStarting] = useState(false)
   const [isCancelling, setCancelling] = useState(false)
+  const listRequest = useRef(0)
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++listRequest.current
     try {
       const [nextAgents, nextRuns] = await Promise.all([
         window.studio.agents.list(),
         window.studio.runs.list(agentId ?? null),
       ])
+      if (request !== listRequest.current) return
       setAgents(nextAgents)
       setRuns(nextRuns)
       setSelectedAgentId((current) => current || agentId || nextAgents[0]?.id || '')
       setStatus('ready')
       setError(undefined)
     } catch (loadError) {
+      if (request !== listRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取本地 Run。')
       setStatus('error')
     }
   }, [agentId])
 
   const loadDetail = useCallback(async (runId: string) => {
+    const request = ++detailRequest.current
     try {
-      setDetail(await window.studio.runs.get(runId))
+      const nextDetail = await window.studio.runs.get(runId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setError(undefined)
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取 Run 详情。')
     }
   }, [])

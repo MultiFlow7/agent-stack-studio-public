@@ -1,7 +1,7 @@
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentRepository } from '../persistence/agent-repository'
 import { WorkspaceService } from '../workspace/workspace-service'
 import { AgentService } from './agent-service'
@@ -94,6 +94,23 @@ describe('AgentService', () => {
     expect(() => service.getActive(agent.id)).toThrow('请先恢复')
     expect(() => service.createVersion(agent.id)).toThrow('请先恢复')
     await expect(service.duplicate({ id: agent.id })).rejects.toThrow('请先恢复')
+    repository.close()
+  })
+
+  it('removes a newly-created workspace when repository creation fails', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-cleanup-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const workspaceRoot = path.join(directory, 'workspaces')
+    const service = new AgentService(repository, new WorkspaceService(workspaceRoot))
+    vi.spyOn(repository, 'create').mockImplementationOnce(() => {
+      throw new Error('simulated persistence failure')
+    })
+
+    await expect(
+      service.create({ name: 'Cleanup Agent', description: '', executionMode: 'agent-loop' }),
+    ).rejects.toThrow('simulated persistence failure')
+    expect(await readdir(workspaceRoot)).toEqual([])
     repository.close()
   })
 })

@@ -29,7 +29,13 @@ function containsSensitiveShape(value: unknown): boolean {
 export class MulticaContractTestPublisher implements AgentPublisher {
   readonly #remote = new Map<string, RemoteAgentSummary>()
 
-  validate(target: PublishTarget, publishPackage: PublishPackage): Promise<PublishValidation> {
+  validate(
+    target: PublishTarget,
+    publishPackage: PublishPackage,
+    signal?: AbortSignal,
+  ): Promise<PublishValidation> {
+    if (signal?.aborted)
+      return Promise.reject(new DOMException('Publishing aborted.', 'AbortError'))
     const issues: PublishValidation['issues'] = []
     if (target.id !== localContractTestTargetId || target.transport !== 'contract-test') {
       issues.push({
@@ -75,7 +81,8 @@ export class MulticaContractTestPublisher implements AgentPublisher {
     publishPackage: PublishPackage,
     context: PublisherContext,
   ): Promise<PublisherOutcome> {
-    const validation = await this.validate(target, publishPackage)
+    if (context.signal.aborted) throw new DOMException('Publishing aborted.', 'AbortError')
+    const validation = await this.validate(target, publishPackage, context.signal)
     if (validation.status === 'blocked') throw new Error('发布预检未通过。')
     const remoteAgentId =
       context.remoteAgentId ?? `test-agent-${shortHash(publishPackage.source.localAgentId)}`
@@ -94,7 +101,13 @@ export class MulticaContractTestPublisher implements AgentPublisher {
     }
   }
 
-  inspect(_target: PublishTarget, remoteAgentId: string): Promise<RemoteAgentSummary | null> {
+  inspect(
+    _target: PublishTarget,
+    remoteAgentId: string,
+    signal?: AbortSignal,
+  ): Promise<RemoteAgentSummary | null> {
+    if (signal?.aborted)
+      return Promise.reject(new DOMException('Publishing aborted.', 'AbortError'))
     return Promise.resolve(this.#remote.get(remoteAgentId) ?? null)
   }
 }

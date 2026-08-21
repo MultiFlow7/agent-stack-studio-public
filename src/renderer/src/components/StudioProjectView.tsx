@@ -13,7 +13,7 @@ import {
   Trash,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CapabilityId, ComponentDescriptor } from '../../../shared/component'
 import type { StudioProjectState } from '../../../shared/studio-project'
 import { capabilityLabel } from '../copy'
@@ -31,16 +31,20 @@ export function StudioProjectView() {
   const [editingId, setEditingId] = useState<string>()
   const [descriptorText, setDescriptorText] = useState('')
   const [deleteId, setDeleteId] = useState<string>()
+  const loadRequest = useRef(0)
 
   const load = useCallback(async (external = false) => {
+    const request = ++loadRequest.current
     setStatus('loading')
     setError(undefined)
     if (external) setFeedback(undefined)
     try {
       const next = await window.studio.studioProject!.current()
+      if (request !== loadRequest.current) return
       setState(external ? { ...next, changedExternally: true } : next)
       setStatus('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取 Studio 项目。')
       setStatus('error')
     }

@@ -112,6 +112,25 @@ describe('AgentRepository', () => {
     repository.close()
   })
 
+  it('treats a duplicate settings request as a no-op without bumping revision', async () => {
+    const repository = await createRepository()
+    const agent = repository.create({
+      name: 'Idempotent Agent',
+      description: 'Same values',
+      executionMode: 'agent-loop',
+    })
+
+    const unchanged = repository.update({
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      executionMode: agent.executionMode,
+    })
+
+    expect(unchanged.draft.revision).toBe(1)
+    repository.close()
+  })
+
   it('stores Keychain references without accepting secret values', async () => {
     const repository = await createRepository()
     const agent = repository.create({

@@ -49,8 +49,10 @@ import { registerPreferencesIpc } from './ipc/register-preferences-ipc'
 import { defaultApplicationPreferences } from '../shared/preferences'
 import { CommandCenterService } from './command-center/command-center-service'
 import { registerCommandCenterIpc } from './ipc/register-command-center-ipc'
+import { sanitizedErrorMessage } from '../shared/sensitive-data'
 
 app.enableSandbox()
+process.umask(0o077)
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const captureUserDataPath = process.env.STUDIO_CAPTURE_USER_DATA_PATH
@@ -60,6 +62,8 @@ if (
 ) {
   app.setPath('userData', captureUserDataPath)
 }
+const ownsSingleInstanceLock = app.requestSingleInstanceLock()
+if (!ownsSingleInstanceLock) app.quit()
 let mainWindow: BrowserWindow | undefined
 let repository: AgentRepository | undefined
 let componentRepository: ComponentRepository | undefined
@@ -205,10 +209,15 @@ function createWindow(): BrowserWindow {
     window.show()
   })
   const captureView = process.env.STUDIO_CAPTURE_VIEW
-  void window.loadFile(
-    path.join(currentDirectory, '../renderer/index.html'),
-    captureView ? { hash: captureView } : undefined,
-  )
+  void window
+    .loadFile(
+      path.join(currentDirectory, '../renderer/index.html'),
+      captureView ? { hash: captureView } : undefined,
+    )
+    .catch(() => {
+      console.error('Agent Stack Studio 无法载入 Renderer。')
+      app.quit()
+    })
   return window
 }
 
@@ -371,6 +380,7 @@ async function bootstrap(): Promise<void> {
           void mainWindow?.webContents
             .capturePage()
             .then((image) => writeFile(capturePath, image.toPNG()))
+            .catch(() => console.error('无法生成本地验收截图。'))
             .finally(() => app.quit())
         },
         Number(process.env.STUDIO_CAPTURE_DELAY_MS ?? 1_000),
@@ -381,13 +391,22 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-app
-  .whenReady()
-  .then(bootstrap)
-  .catch((error: unknown) => {
-    console.error(error)
-    app.exit(1)
-  })
+if (ownsSingleInstanceLock) {
+  app
+    .whenReady()
+    .then(bootstrap)
+    .catch((error: unknown) => {
+      console.error(sanitizedErrorMessage(error, 'Agent Stack Studio 启动失败。'))
+      app.exit(1)
+    })
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
@@ -403,7 +422,9 @@ app.on('before-quit', (event) => {
   void (async () => {
     await currentExperiments?.stopAll()
     await currentRuntime.stopAll()
-  })().finally(() => app.quit())
+  })()
+    .catch(() => console.warn('退出时本地 Runtime 清理未完整结束。'))
+    .finally(() => app.quit())
 })
 
 app.on('will-quit', () => {

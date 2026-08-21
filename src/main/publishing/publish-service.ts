@@ -42,12 +42,43 @@ const targets = publishTargetsSchema.parse([
   },
 ])
 
+const VALIDATION_TIMEOUT_MS = 10_000
+const PUBLISH_TIMEOUT_MS = 30_000
+
+class PublisherTimeoutError extends Error {
+  constructor() {
+    super('发布目标在时限内未响应。')
+    this.name = 'PublisherTimeoutError'
+  }
+}
+
+async function withPublisherTimeout<T>(
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new PublisherTimeoutError())
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([operation(controller.signal), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 export class PublishService {
   readonly #agents: AgentService
   readonly #components: ComponentService
   readonly #runs: Pick<RunService, 'list'>
   readonly #repository: PublishRepository
   readonly #publisher: AgentPublisher
+  readonly #previewInFlight = new Map<string, Promise<PublishPreview>>()
+  readonly #inFlight = new Map<string, Promise<PublishResult>>()
 
   constructor(options: {
     agents: AgentService
@@ -67,13 +98,26 @@ export class PublishService {
     return targets
   }
 
-  async preview(input: PublishPreviewInput): Promise<PublishPreview> {
+  preview(input: PublishPreviewInput): Promise<PublishPreview> {
+    const key = JSON.stringify(input)
+    const existing = this.#previewInFlight.get(key)
+    if (existing) return existing
+    const task = this.#preview(input).finally(() => {
+      if (this.#previewInFlight.get(key) === task) this.#previewInFlight.delete(key)
+    })
+    this.#previewInFlight.set(key, task)
+    return task
+  }
+
+  async #preview(input: PublishPreviewInput): Promise<PublishPreview> {
     const target = this.#target(input.targetId)
     const detail = this.#agents.getActive(input.agentId)
     const version = detail.versions.find(({ id }) => id === input.agentVersionId)
     if (!version) throw new AppError('NOT_FOUND', '指定的 Agent Version 不存在。')
     const publishPackage = buildPublishPackage({ version, components: this.#components.list() })
-    const connectorValidation = await this.#publisher.validate(target, publishPackage)
+    const connectorValidation = await withPublisherTimeout(VALIDATION_TIMEOUT_MS, (signal) =>
+      this.#publisher.validate(target, publishPackage, signal),
+    )
     const issues = [...connectorValidation.issues]
     const stack = this.#components.getStack(input.agentId)
     if (
@@ -124,6 +168,20 @@ export class PublishService {
       return publishResultSchema.parse({ receipt: preview.priorReceipt, reused: true })
     }
     const idempotencyKey = publishIdempotencyKey(preview.target.id, preview.package)
+    const existing = this.#inFlight.get(idempotencyKey)
+    if (existing) return existing
+    const task = this.#publishOnce(input, preview, idempotencyKey).finally(() => {
+      if (this.#inFlight.get(idempotencyKey) === task) this.#inFlight.delete(idempotencyKey)
+    })
+    this.#inFlight.set(idempotencyKey, task)
+    return task
+  }
+
+  async #publishOnce(
+    input: PublishExecuteInput,
+    preview: PublishPreview,
+    idempotencyKey: string,
+  ): Promise<PublishResult> {
     const pending = this.#repository.createPending({
       targetId: preview.target.id,
       agentId: input.agentId,
@@ -133,10 +191,13 @@ export class PublishService {
     })
     try {
       const mapping = this.#repository.getMapping(preview.target.id, input.agentId)
-      const outcome = await this.#publisher.publish(preview.target, preview.package, {
-        idempotencyKey,
-        remoteAgentId: mapping?.remoteAgentId ?? null,
-      })
+      const outcome = await withPublisherTimeout(PUBLISH_TIMEOUT_MS, (signal) =>
+        this.#publisher.publish(preview.target, preview.package, {
+          idempotencyKey,
+          remoteAgentId: mapping?.remoteAgentId ?? null,
+          signal,
+        }),
+      )
       return publishResultSchema.parse({
         receipt: this.#repository.completeSuccess(pending.id, outcome),
         reused: false,
@@ -144,8 +205,11 @@ export class PublishService {
     } catch (error) {
       return publishResultSchema.parse({
         receipt: this.#repository.completeFailure(pending.id, {
-          code: 'CONNECTOR_FAILED',
-          message: error instanceof Error ? error.message : '发布目标返回未知错误。',
+          code: error instanceof PublisherTimeoutError ? 'CONNECTOR_TIMEOUT' : 'CONNECTOR_FAILED',
+          message:
+            error instanceof PublisherTimeoutError
+              ? '发布目标响应超时；重试会复用同一幂等键。'
+              : '发布目标请求失败，未保存远端错误细节。',
           retryable: true,
         }),
         reused: false,

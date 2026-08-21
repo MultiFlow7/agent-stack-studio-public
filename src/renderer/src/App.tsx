@@ -14,7 +14,7 @@ import {
   SidebarSimple,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CreateAgentInput } from '../../shared/agent'
 import type { AgentDetail } from '../../shared/agent-detail'
 import type { AgentStatusProjection } from '../../shared/agent-status'
@@ -86,6 +86,9 @@ export function App() {
   const [selectedComponentId, setSelectedComponentId] = useState<string>()
   const [selectedRunId, setSelectedRunId] = useState<string>()
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>()
+  const commandRequest = useRef(0)
+  const agentListRequest = useRef(0)
+  const agentDetailRequest = useRef(0)
 
   const persistRendererPreferences = useCallback(
     async (lastView: AppView, collapsed: boolean): Promise<void> => {
@@ -101,6 +104,7 @@ export function App() {
 
   const openView = useCallback(
     (nextView: AppView, focusMain = true): void => {
+      agentDetailRequest.current += 1
       setDetail(undefined)
       setDetailStatus(undefined)
       setSelectedComponentId(undefined)
@@ -114,8 +118,10 @@ export function App() {
   )
 
   const loadCommandCenter = useCallback(async (changedExternally = false): Promise<void> => {
+    const request = ++commandRequest.current
     try {
       const nextSnapshot = await window.studio.commandCenter.snapshot()
+      if (request !== commandRequest.current) return
       setCommandSnapshot(
         changedExternally && nextSnapshot.workspace.name
           ? {
@@ -127,6 +133,7 @@ export function App() {
       setCommandStatus('ready')
       setCommandError(undefined)
     } catch (error) {
+      if (request !== commandRequest.current) return
       setCommandError(error instanceof Error ? error.message : '无法读取工作空间状态。')
       setCommandStatus('error')
     }
@@ -174,12 +181,16 @@ export function App() {
   }, [commandSnapshot?.activity.activeRunCount, loadCommandCenter])
 
   const loadAgents = useCallback(async () => {
+    const request = ++agentListRequest.current
     setStatus('loading')
     setLoadError(undefined)
     try {
-      setAgents(await window.studio.agents.statusList({ scope: agentScope }))
+      const nextAgents = await window.studio.agents.statusList({ scope: agentScope })
+      if (request !== agentListRequest.current) return
+      setAgents(nextAgents)
       setStatus('ready')
     } catch (error) {
+      if (request !== agentListRequest.current) return
       setLoadError(error instanceof Error ? error.message : '无法读取本地 Agent。')
       setStatus('error')
     }
@@ -232,6 +243,7 @@ export function App() {
   }
 
   async function openAgent(agentId: string): Promise<void> {
+    const request = ++agentDetailRequest.current
     setStatus('loading')
     setLoadError(undefined)
     try {
@@ -239,10 +251,12 @@ export function App() {
         window.studio.agents.get(agentId),
         window.studio.agents.status(agentId),
       ])
+      if (request !== agentDetailRequest.current) return
       setDetail(nextDetail)
       setDetailStatus(nextStatus)
       setStatus('ready')
     } catch (error) {
+      if (request !== agentDetailRequest.current) return
       setLoadError(error instanceof Error ? error.message : '无法打开 Agent。')
       setStatus('error')
     }

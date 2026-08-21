@@ -6,7 +6,7 @@ import {
   MagnifyingGlass,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentCatalogItem } from '../../../shared/component-catalog'
 import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
 
@@ -34,6 +34,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
   const [detail, setDetail] = useState<ComponentCatalogItem>()
   const [detailStatus, setDetailStatus] = useState<CatalogStatus>('ready')
   const [detailError, setDetailError] = useState<string>()
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -48,15 +49,19 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
   }, [])
 
   const openDetail = useCallback(async (componentId: string) => {
+    const request = ++detailRequest.current
     setSelectedId(componentId)
     setDetail(undefined)
     setDetailError(undefined)
     setDetailStatus('loading')
     window.setTimeout(() => document.getElementById('component-detail-panel')?.focus(), 0)
     try {
-      setDetail(await window.studio.components.get(componentId))
+      const nextDetail = await window.studio.components.get(componentId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setDetailStatus('ready')
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setDetailError(loadError instanceof Error ? loadError.message : '无法读取组件详情。')
       setDetailStatus('error')
     }
@@ -305,6 +310,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
           <button
             className="back-button"
             onClick={() => {
+              detailRequest.current += 1
               setSelectedId(undefined)
               setDetail(undefined)
               setDetailError(undefined)

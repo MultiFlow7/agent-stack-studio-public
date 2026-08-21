@@ -351,3 +351,14 @@ CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍�
 实现状态：80 个测试文件 / 266 项测试全部通过；本地 arm64 `.app`、包内 CLI、DMG/ZIP、包验证、23 张中文截图和无凭证 dry-run 通过，报告 5 verified、3 skipped、2 disabled、0 blocked。`verify:evidence-ledger` 验证 136 条需求、8 条旅程和 23 个截图 producer。
 
 远程证据：私有实现提交 `2c9fdd9` 与公开实现提交 `7748351` 共享 tree `e3846498ce6d4621491f39ac1988e28f2a7cff96`；公开 GitHub macOS CI run `32446386099` 成功，完成 Intel x64 项目检查、应用打包、包验证、packaged E2E 和无凭证 release dry-run。
+
+## M29：稳定性、并发与敏感信息审计
+
+- 对空值、重复请求、并发、权限、超时、异常和敏感信息进行跨 Core/Main/Preload/Renderer/Runtime/CLI 审计。
+- 同一只读请求合并，写操作使只读请求失效；发布、维护、Keychain 与发现操作使用明确单航班或串行边界。
+- 项目迁移和恢复进入进程写锁，仅回收死亡进程的过期锁；重复 Run 取消、Runtime 停止和 Renderer 晚到响应保持幂等。
+- Keychain、发布 Adapter、GitHub 与 Runtime 子进程都有有界超时；异常不再保存远端或子进程原始错误。
+- 日志、工作区、Artifact、备份、恢复和导出使用私有权限；Runtime stdout/stderr 只记录字节数，不记录正文。
+- Git remote、Descriptor、公开来源 URL、CLI/IPC/Runtime 错误和结构化日志统一拒绝或净化凭证与敏感查询参数。
+
+完成条件：83 个测试文件 / 284 项测试、`npm run check`、CLI/macOS 打包、包验证、packaged E2E、公开快照隐私门禁和公开 Intel CI 全部通过；最终 `.app` 与包内 CLI 实际启动。本切片不增加数据库或项目格式迁移，不改变领域、IPC 或 Runtime 协议。

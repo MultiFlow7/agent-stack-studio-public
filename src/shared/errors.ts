@@ -16,6 +16,7 @@ export class AppError extends Error {
 }
 
 export function toPublicError(error: unknown): Error {
-  if (error instanceof AppError) return new Error(error.message)
+  if (error instanceof AppError) return new Error(redactSensitiveText(error.message))
   return new Error('Agent Stack Studio 无法完成此操作，请重试。')
 }
+import { redactSensitiveText } from './sensitive-data'

@@ -67,4 +67,32 @@ describe('RuntimeController', () => {
     })
     await controller.stopAll()
   })
+
+  it('turns an event-consumer exception into a controlled Runtime failure and cleans the child', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-stack-runtime-event-error-'))
+    temporaryDirectories.push(directory)
+    const entryPath = path.join(directory, 'runtime-fixture.mjs')
+    await writeFile(
+      entryPath,
+      `
+        process.on('message', (message) => {
+          if (message.type === 'execute') process.send({
+            type: 'run-event',
+            event: { type: 'runtime-ready', message: 'event', details: {} }
+          });
+        });
+        process.send({ type: 'runtime-ready', cordisVersion: '4.0.0-rc.8' });
+      `,
+      'utf8',
+    )
+    const controller = new RuntimeController(entryPath, new AppLogger(path.join(directory, 'logs')))
+    const { manifest } = createRunFixture()
+
+    await expect(
+      controller.execute(manifest, () => {
+        throw new Error('event consumer failed')
+      }),
+    ).rejects.toThrow('event consumer failed')
+    await controller.stopAll()
+  })
 })

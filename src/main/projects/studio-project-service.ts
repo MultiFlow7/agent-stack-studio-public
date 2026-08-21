@@ -19,6 +19,10 @@ export class StudioProjectService {
   #changeListeners = new Set<() => void>()
   #watchTimer: NodeJS.Timeout | undefined
   #pendingRecoveryNotice = false
+  #detectingChange = false
+  #detectAgain = false
+  #lastNotifiedHash: string | null = null
+  #notifiedUnreadable = false
 
   constructor(options: {
     core?: StudioCore
@@ -50,6 +54,8 @@ export class StudioProjectService {
     const recovered = result.recovered || this.#pendingRecoveryNotice
     this.#pendingRecoveryNotice = false
     this.#index.touch(result.path, result.project)
+    this.#lastNotifiedHash = null
+    this.#notifiedUnreadable = false
     if (result.migrated) {
       this.#index.recordMaintenance('project-migration', result.project.id, {
         path: result.path,
@@ -245,6 +251,7 @@ export class StudioProjectService {
     this.#watcher?.close()
     this.#watcher = null
     this.#watchedPath = null
+    this.#changeListeners.clear()
   }
 
   #requireRoot(): string {
@@ -257,23 +264,68 @@ export class StudioProjectService {
     this.#watcher?.close()
     this.#watchedPath = projectPath
     const projectName = path.basename(projectPath)
-    this.#watcher = watch(path.dirname(projectPath), { persistent: false }, (_event, fileName) => {
+    const watcher = watch(path.dirname(projectPath), { persistent: false }, (_event, fileName) => {
       if (fileName !== null && String(fileName) !== projectName) return
       if (this.#watchTimer) clearTimeout(this.#watchTimer)
-      this.#watchTimer = setTimeout(() => void this.#detectExternalChange(projectPath), 120)
+      this.#watchTimer = setTimeout(() => {
+        this.#watchTimer = undefined
+        void this.#detectExternalChange(projectPath)
+      }, 120)
+    })
+    this.#watcher = watcher
+    watcher.on('error', () => {
+      if (this.#watcher !== watcher) return
+      watcher.close()
+      this.#watcher = null
+      this.#watchedPath = null
+      this.#notifyUnreadable()
     })
   }
 
   async #detectExternalChange(projectPath: string): Promise<void> {
+    if (this.#detectingChange) {
+      this.#detectAgain = true
+      return
+    }
+    this.#detectingChange = true
     try {
-      const result = await this.#core.inspectProject(projectPath)
-      if (result.recovered) this.#pendingRecoveryNotice = true
-      const indexed = this.#index.findByPath(result.path)
-      const currentHash = stableHash(result.project)
-      if (indexed?.lastSeenHash === currentHash) return
-      for (const listener of this.#changeListeners) listener()
-    } catch {
-      for (const listener of this.#changeListeners) listener()
+      do {
+        this.#detectAgain = false
+        try {
+          const result = await this.#core.inspectProject(projectPath)
+          if (result.recovered) this.#pendingRecoveryNotice = true
+          const indexed = this.#index.findByPath(result.path)
+          const currentHash = stableHash(result.project)
+          this.#notifiedUnreadable = false
+          if (indexed?.lastSeenHash === currentHash) {
+            this.#lastNotifiedHash = null
+            continue
+          }
+          if (this.#lastNotifiedHash === currentHash) continue
+          this.#lastNotifiedHash = currentHash
+          this.#notifyChanged()
+        } catch {
+          this.#notifyUnreadable()
+        }
+      } while (this.#detectAgain)
+    } finally {
+      this.#detectingChange = false
+    }
+  }
+
+  #notifyUnreadable(): void {
+    if (this.#notifiedUnreadable) return
+    this.#notifiedUnreadable = true
+    this.#notifyChanged()
+  }
+
+  #notifyChanged(): void {
+    for (const listener of this.#changeListeners) {
+      try {
+        listener()
+      } catch {
+        // A faulty UI listener must not terminate filesystem monitoring.
+      }
     }
   }
 }

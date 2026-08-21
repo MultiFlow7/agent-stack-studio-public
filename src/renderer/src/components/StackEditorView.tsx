@@ -24,8 +24,10 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
   const [isChoosing, setChoosing] = useState(false)
   const [pendingKey, setPendingKey] = useState<string>()
   const firstConflict = useRef<HTMLFieldSetElement>(null)
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setStatus('loading')
     setError(undefined)
     try {
@@ -33,10 +35,12 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
         window.studio.components.list(),
         window.studio.components.getStack(agentId),
       ])
+      if (request !== loadRequest.current) return
       setCatalog(nextCatalog)
       setStack(nextStack)
       setStatus('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法载入 Stack。')
       setStatus('error')
     }

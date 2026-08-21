@@ -1,15 +1,19 @@
 import { runtimeParentMessageSchema, type RuntimeRunEvent } from '../shared/run'
+import { sanitizedErrorMessage } from '../shared/sensitive-data'
 import { createRuntimeKernel } from './kernel'
 import { executeBuiltInRun } from './run-executor'
 
 const kernel = createRuntimeKernel()
 let activeRun: { id: string; abort: AbortController } | undefined
+let shuttingDown = false
 
 function sendEvent(event: RuntimeRunEvent): void {
   process.send?.({ type: 'run-event', event })
 }
 
 async function shutdown(): Promise<void> {
+  if (shuttingDown) return
+  shuttingDown = true
   activeRun?.abort.abort()
   await kernel.stop()
   if (process.connected) process.disconnect()
@@ -45,7 +49,7 @@ process.on('message', (rawMessage: unknown) => {
       } else {
         process.send?.({
           type: 'runtime-error',
-          message: error instanceof Error ? error.message : 'Runtime 执行失败。',
+          message: sanitizedErrorMessage(error, 'Runtime 执行失败。'),
         })
       }
     })
@@ -58,7 +62,7 @@ void kernel
   .catch((error: unknown) => {
     process.send?.({
       type: 'runtime-error',
-      message: error instanceof Error ? error.message : 'Runtime 启动失败。',
+      message: sanitizedErrorMessage(error, 'Runtime 启动失败。'),
     })
     process.exitCode = 1
   })

@@ -66,7 +66,7 @@ describe('GithubDiscoveryProvider', () => {
     const [url, init] = firstCall ?? []
     const href = typeof url === 'string' ? url : url instanceof URL ? url.href : (url?.url ?? '')
     expect(href).toContain('/search/repositories?q=agent+stack&sort=stars&order=desc')
-    expect(init).toMatchObject({ method: 'GET', redirect: 'follow' })
+    expect(init).toMatchObject({ method: 'GET', redirect: 'error' })
     expect(fetch.mock.calls[1]?.[1]?.headers).toMatchObject({ 'If-None-Match': '"fixture"' })
   })
 

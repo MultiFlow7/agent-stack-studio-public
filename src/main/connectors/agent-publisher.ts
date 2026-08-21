@@ -3,6 +3,7 @@ import type { PublishPackage, PublishTarget, PublishValidation } from '../../sha
 export interface PublisherContext {
   idempotencyKey: string
   remoteAgentId: string | null
+  signal: AbortSignal
 }
 
 export interface PublisherOutcome {
@@ -20,11 +21,19 @@ export interface RemoteAgentSummary {
 }
 
 export interface AgentPublisher {
-  validate(target: PublishTarget, publishPackage: PublishPackage): Promise<PublishValidation>
+  validate(
+    target: PublishTarget,
+    publishPackage: PublishPackage,
+    signal?: AbortSignal,
+  ): Promise<PublishValidation>
   publish(
     target: PublishTarget,
     publishPackage: PublishPackage,
     context: PublisherContext,
   ): Promise<PublisherOutcome>
-  inspect(target: PublishTarget, remoteAgentId: string): Promise<RemoteAgentSummary | null>
+  inspect(
+    target: PublishTarget,
+    remoteAgentId: string,
+    signal?: AbortSignal,
+  ): Promise<RemoteAgentSummary | null>
 }

@@ -235,8 +235,8 @@ export const runtimeChildMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('runtime-ready'), cordisVersion: z.literal('4.0.0-rc.8') }).strict(),
   z.object({ type: z.literal('run-event'), event: runtimeRunEventSchema }).strict(),
   z.object({ type: z.literal('run-completed'), result: runtimeRunResultSchema }).strict(),
-  z.object({ type: z.literal('run-cancelled'), message: z.string().min(1) }).strict(),
-  z.object({ type: z.literal('runtime-error'), message: z.string().min(1) }).strict(),
+  z.object({ type: z.literal('run-cancelled'), message: z.string().min(1).max(1_000) }).strict(),
+  z.object({ type: z.literal('runtime-error'), message: z.string().min(1).max(1_000) }).strict(),
 ])
 
 export type ExecutionDescription = z.infer<typeof executionDescriptionSchema>

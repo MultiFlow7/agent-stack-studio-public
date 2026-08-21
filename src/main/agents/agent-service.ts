@@ -28,32 +28,52 @@ export class AgentService {
   async create(input: CreateAgentInput): Promise<Agent> {
     const id = randomUUID()
     const workspacePath = await this.#workspaces.create(id)
-    return this.#repository.create(input, {
-      id,
-      location: { workspacePath, sourceKind: 'blank', sourcePath: null },
-    })
+    try {
+      return this.#repository.create(input, {
+        id,
+        location: { workspacePath, sourceKind: 'blank', sourcePath: null },
+      })
+    } catch (error) {
+      await this.#workspaces.remove(id).catch(() => undefined)
+      throw error
+    }
   }
 
   async import(scan: ImportScan): Promise<AgentDetail> {
     const id = randomUUID()
     const workspacePath = await this.#workspaces.create(id)
-    const agent = this.#repository.create(
-      {
-        name: scan.suggestedName,
-        description: `通过静态检查从 ${scan.projectType} 项目导入。`,
-        executionMode: 'external-harness',
-      },
-      {
-        id,
-        location: {
-          workspacePath,
-          sourceKind: 'local-import',
-          sourcePath: scan.sourcePath,
+    let created = false
+    try {
+      const agent = this.#repository.create(
+        {
+          name: scan.suggestedName,
+          description: `通过静态检查从 ${scan.projectType} 项目导入。`,
+          executionMode: 'external-harness',
         },
-      },
-    )
-    this.#repository.createVersion(agent.id)
-    return this.#repository.getDetail(agent.id)
+        {
+          id,
+          location: {
+            workspacePath,
+            sourceKind: 'local-import',
+            sourcePath: scan.sourcePath,
+          },
+        },
+      )
+      created = true
+      this.#repository.createVersion(agent.id)
+      return this.#repository.getDetail(agent.id)
+    } catch (error) {
+      if (created) {
+        try {
+          this.#repository.archive(id)
+          this.#repository.delete(id)
+        } catch {
+          // Preserve the original import failure; repository cleanup is best effort.
+        }
+      }
+      await this.#workspaces.remove(id).catch(() => undefined)
+      throw error
+    }
   }
 
   list(input: AgentListInput = { scope: 'active' }): Agent[] {

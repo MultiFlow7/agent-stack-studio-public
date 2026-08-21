@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type { ImportScan, ScanEvidence } from '../../shared/import'
 
@@ -21,23 +21,27 @@ function safeName(name: string): string {
 }
 
 async function readSmallText(filePath: string): Promise<string | undefined> {
-  const metadata = await stat(filePath)
-  if (!metadata.isFile() || metadata.size > maxManifestBytes) return undefined
+  const metadata = await lstat(filePath)
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > maxManifestBytes)
+    return undefined
   return readFile(filePath, 'utf8')
 }
 
 export async function scanProject(sourcePath: string, scanId: string): Promise<ImportScan> {
-  const directory = await stat(sourcePath)
-  if (!directory.isDirectory()) throw new Error('所选导入路径不是文件夹。')
+  const directory = await lstat(sourcePath)
+  if (directory.isSymbolicLink() || !directory.isDirectory()) {
+    throw new Error('所选导入路径必须是非符号链接的文件夹。')
+  }
+  const root = await realpath(sourcePath)
 
-  const entries = await readdir(sourcePath, { withFileTypes: true })
+  const entries = await readdir(root, { withFileTypes: true })
   const files = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name))
   const evidence: ScanEvidence[] = []
-  let suggestedName = safeName(path.basename(sourcePath))
+  let suggestedName = safeName(path.basename(root))
   let projectType: ImportScan['projectType'] = 'unknown'
 
   if (files.has('package.json')) {
-    const contents = await readSmallText(path.join(sourcePath, 'package.json'))
+    const contents = await readSmallText(path.join(root, 'package.json'))
     if (contents) {
       try {
         const packageManifest = JSON.parse(contents) as {
@@ -88,7 +92,7 @@ export async function scanProject(sourcePath: string, scanId: string): Promise<I
   const unrecognizedManifests = [...files].filter((file) => recognizedFiles.has(file)).length === 0
   return {
     scanId,
-    sourcePath,
+    sourcePath: root,
     suggestedName,
     projectType,
     evidence,

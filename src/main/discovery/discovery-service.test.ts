@@ -78,4 +78,41 @@ describe('DiscoveryService', () => {
     await expect(pending).rejects.toMatchObject({ code: 'OPERATION_CANCELLED' })
     expect(service.cancel()).toBe(false)
   })
+
+  it('coalesces duplicate in-flight requests instead of cancelling and repeating them', async () => {
+    let resolveSearch: ((value: SourceSearchResult) => void) | undefined
+    const search = vi.fn(
+      () =>
+        new Promise<SourceSearchResult>((resolve) => {
+          resolveSearch = resolve
+        }),
+    )
+    const provider: SourceDiscoveryProvider = { id: 'github', search, inspect: vi.fn() }
+    const service = new DiscoveryService({ provider })
+    const input: SourceSearchInput = {
+      provider: 'github',
+      query: 'agent',
+      sort: 'relevance',
+      order: 'desc',
+      page: 1,
+      perPage: 10,
+    }
+    const first = service.search(input)
+    const duplicate = service.search(input)
+    const result: SourceSearchResult = {
+      provider: 'github',
+      query: 'agent',
+      totalCount: 0,
+      incompleteResults: false,
+      items: [],
+      page: 1,
+      perPage: 10,
+      cacheHit: false,
+      rateLimit: { limit: null, remaining: null, resetAt: null, resource: null },
+    }
+    resolveSearch?.(result)
+
+    await expect(Promise.all([first, duplicate])).resolves.toEqual([result, result])
+    expect(search).toHaveBeenCalledOnce()
+  })
 })

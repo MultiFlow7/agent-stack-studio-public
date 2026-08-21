@@ -136,6 +136,13 @@ export class ComponentRepository {
     if (!candidate?.descriptor.provides.some((provider) => provider.capability === capability)) {
       throw new AppError('VALIDATION_FAILED', '所选组件不提供该能力。')
     }
+    if (
+      state.owners.some(
+        (owner) => owner.capability === capability && owner.componentId === componentId,
+      )
+    ) {
+      return state
+    }
     const timestamp = new Date().toISOString()
     this.#database.exec('BEGIN IMMEDIATE')
     try {
