@@ -323,3 +323,15 @@ CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍�
 实现状态：78 个测试文件 / 259 项测试、生产构建、CLI、arm64/x64 DMG/ZIP、包验证和 packaged E2E 已在本机与公开 Intel CI 通过；最终项目 revision 15、GUI/CLI v2 包逐字一致，`artifacts/packaged-app-e2e-command-center.png` 已人工复核。
 
 远程证据：私有实现提交 `ef4961d` 与公开实现提交 `d1d374e` 共享 tree `dc5ad74015c9da7f27912ff4bd5a9b2d24c79396`；公开 GitHub macOS CI run `32442138733` 成功，完成 Intel x64 项目检查、应用打包、包验证、工作区命令中心 packaged E2E 与无凭证 release dry-run。
+
+## M27：本地验收、可访问树与断路门禁
+
+- 新增版本化验收分类，逐项记录 7 个一级入口、6 个输入提示和 2 组最终包控制的用途。
+- `npm run check` 自动拒绝 production TODO/FIXME/HACK、占位文案、死操作、未分类 harness 和 GUI/命令中心导航断裂。
+- 最终 `.app` 逐个聚焦并打开全部一级入口，确认页面标题与 `aria-current=page`。
+- Chromium Accessibility Tree 必须暴露 main/navigation landmarks、全局搜索和创建操作，所有可见按钮名称非空。
+- 保留现有对比度、焦点、减少动态效果和 Dialog 键盘契约；不增加业务协议或测试成功旁路。
+
+完成条件：源码门禁、verifier tests、最终 arm64/x64 包与 packaged E2E 通过，输出 `LOCAL_ACCEPTANCE_AUDIT VERIFIED`、`NAVIGATION_REACHABILITY VERIFIED (7)` 和 `PACKAGED_ACCESSIBILITY_TREE VERIFIED`。
+
+本地实现状态：120 个 production 源文件、7 个入口、6 个输入提示和 2 组 packaged harness 已分类，未处置项 0；最终 arm64 `.app` 显示 21 个可见按钮、0 个无名称按钮，7 个入口全部实际打开。

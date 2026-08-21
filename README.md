@@ -35,8 +35,9 @@ Agent Stack Studio 是一个仅面向 macOS 的本地桌面工具，用于识别
 - [术语表](./docs/glossary.md)
 - [本地产品完整性矩阵](./docs/local-completeness-matrix.md)
 - [正式分发架构就绪矩阵](./docs/release-readiness-matrix.md)
+- [本地验收审计](./docs/local-acceptance-audit.md)
 
-当前仓库已实现 M0 至 M26 的可运行纵向切片。M26 用只读聚合提供真实工作区/revision、Run 状态、`⌘K` 本地全局搜索、实体直达和白名单应用操作，并集中 Agent、Stack、Run、Experiment 与发布状态词汇；它不新增持久化事实或执行权限。M25 完整覆盖 GitHub 公开来源发现的空闲、加载、成功、无结果、取消、离线、15 秒超时、限流和 Provider 错误。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
+当前仓库已实现 M0 至 M27 的可运行纵向切片。M27 把 TODO/FIXME、占位/死操作、测试旁路和断路导航变成自动拒绝门禁，并在最终 `.app` 中遍历 7 个入口、检查 Chromium 可访问树。M26 用只读聚合提供真实工作区/revision、Run 状态、`⌘K` 本地全局搜索、实体直达和白名单应用操作。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
 
 ## 本地开发
 
@@ -58,6 +59,7 @@ npm run package:cli  # 构建并检查与应用同版本的 studio CLI
 npm run test:e2e:packaged # 实际启动已打包 .app 并检查中文设置页与 Renderer 边界
 npm run release:dry-run # 无凭证也运行全套检查并生成结构化分发报告
 npm run verify:public-snapshot # 检查待公开快照中的凭证与个人信息
+npm run verify:local-acceptance # 拒绝未分类占位、测试旁路与断路导航
 ```
 
 工程边界位于 `src/renderer`、`src/preload`、`src/main`、`src/runtime` 和 `src/shared`。Renderer 只能访问 Preload 暴露且经 schema 校验的白名单 API；SQLite、工作区、原生目录选择器和 Runtime 子进程均由 Main 管理。每次正式 Run 都创建全新的 Runtime 子进程，Cordis 类型不会进入领域模型或 UI。

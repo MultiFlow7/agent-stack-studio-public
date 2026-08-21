@@ -386,6 +386,7 @@ export function App() {
         </button>
         <div className="topbar__commands">
           <button
+            aria-label="搜索 Agent、组件、Run…"
             aria-keyshortcuts="Meta+K"
             className="topbar__search"
             onClick={() => setCommandOpen(true)}

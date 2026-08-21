@@ -296,3 +296,10 @@ Multica 提供交互参考：Agent 列表进入详情，详情通过清楚的分
 - 命令面板使用一个搜索输入和连续结果列表，显示导航、操作、项目、Agent、组件、Run 与实验类别；上下箭头选择、Enter 打开、Escape 关闭、Tab 保持在对话框内。
 - 加载、无结果和错误状态占用同一结果区域并通过 `aria-live`/`role=alert` 表达；失败只影响命令中心，不覆盖当前业务页面。
 - 页面间统一复用 Run、Experiment、Stack、Publish、工作区与活动状态词汇；状态颜色必须同时伴随图标、文字或可访问名称。
+
+## 31. M27 可访问入口验收
+
+- 一级导航固定为 Studio 项目、发现、Agent、组件、实验、运行记录和设置；全部可聚焦、未禁用，并以 `aria-current=page` 标记当前页面。
+- 图标按钮必须提供可访问名称；全局搜索同时声明 `Meta+K`，视觉 `kbd` 不进入冗余按钮名称。
+- 最终 `.app` 的 Accessibility Tree 必须暴露 main/navigation landmarks，所有可见按钮名称非空。
+- 输入 placeholder 只能补充格式或查询示例，不能代替 label；新增提示必须进入验收分类清单。

@@ -104,6 +104,76 @@ async function waitForExpression(client, expression) {
   throw new Error(`界面状态等待超时：${expression}`)
 }
 
+async function verifyNavigationReachability(client) {
+  const destinations = [
+    ['Studio 项目', 'Packaged CLI E2E'],
+    ['发现', '发现组件来源'],
+    ['Agent', 'Agent'],
+    ['组件', '组件'],
+    ['实验', '实验'],
+    ['运行记录', '运行记录'],
+    ['设置', '设置'],
+  ]
+  const visited = []
+  for (const [label, heading] of destinations) {
+    const state = await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('nav button')].find(
+          (element) => element.getAttribute('aria-label') === ${JSON.stringify(label)}
+        )
+        if (!button || button.disabled) return { found: Boolean(button), disabled: button?.disabled }
+        button.focus()
+        button.click()
+        return { found: true, disabled: false }
+      })()`,
+    )
+    if (!state.found || state.disabled) {
+      throw new Error(`主导航不可达：${label}（${JSON.stringify(state)}）`)
+    }
+    await waitForExpression(
+      client,
+      `document.querySelector('h1')?.textContent === ${JSON.stringify(heading)}`,
+    )
+    const active = await evaluate(
+      client,
+      `document.querySelector('nav button[aria-current=page]')?.getAttribute('aria-label')`,
+    )
+    if (active !== label) throw new Error(`主导航未标记当前页面：${label}（实际 ${active}）`)
+    visited.push(label)
+  }
+  return visited
+}
+
+async function verifyAccessibilityTree(client) {
+  await client.send('Accessibility.enable')
+  const { nodes = [] } = await client.send('Accessibility.getFullAXTree')
+  const exposed = nodes.filter((node) => !node.ignored)
+  const buttonNames = exposed
+    .filter((node) => node.role?.value === 'button')
+    .map((node) => String(node.name?.value ?? '').trim())
+  const requiredNames = [
+    'Studio 项目',
+    '发现',
+    'Agent',
+    '组件',
+    '实验',
+    '运行记录',
+    '设置',
+    '搜索 Agent、组件、Run…',
+    '创建 Agent',
+  ]
+  const missing = requiredNames.filter((name) => !buttonNames.includes(name))
+  const unnamedButtons = buttonNames.filter((name) => !name).length
+  const roles = new Set(exposed.map((node) => node.role?.value))
+  if (missing.length || unnamedButtons || !roles.has('main') || !roles.has('navigation')) {
+    throw new Error(
+      `可访问树不完整：${JSON.stringify({ missing, unnamedButtons, hasMain: roles.has('main'), hasNavigation: roles.has('navigation') })}`,
+    )
+  }
+  return { buttonCount: buttonNames.length, unnamedButtons }
+}
+
 async function captureSourceDiscoveryEvidence(client, screenshotPath) {
   await evaluate(
     client,
@@ -632,6 +702,9 @@ export async function runPackagedAppE2e(options = {}) {
     ) {
       throw new Error(`Renderer 安全或语言边界不符合预期：${JSON.stringify(rendererBoundary)}`)
     }
+
+    const reachableNavigation = await verifyNavigationReachability(client)
+    const accessibilityTree = await verifyAccessibilityTree(client)
 
     const collapsedSidebar = await evaluate(
       client,
@@ -2105,6 +2178,8 @@ export async function runPackagedAppE2e(options = {}) {
       workflowScreenshotPath,
       workflowCycleScreenshotPath,
       rendererBoundary,
+      reachableNavigation,
+      accessibilityTree,
       persistedPreferences,
       settingsCopy,
       capabilityCopy,
@@ -2162,6 +2237,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`PACKAGED_PROJECT_FINAL_REVISION ${result.packagedCli.finalRevision}`)
       console.log(`PACKAGED_PROJECT_PACKAGE_FORMAT ${result.packagedCli.packageFormatVersion}`)
       console.log('RENDERER_NODE DISABLED')
+      console.log(`NAVIGATION_REACHABILITY VERIFIED (${result.reachableNavigation.length})`)
+      console.log(
+        `PACKAGED_ACCESSIBILITY_TREE VERIFIED (${result.accessibilityTree.buttonCount} buttons, ${result.accessibilityTree.unnamedButtons} unnamed)`,
+      )
       console.log('CHINESE_SETTINGS VERIFIED')
       console.log('DATA_LOCATION_BOUNDARIES VERIFIED')
       console.log('SOURCE_DISCOVERY_STATE_COVERAGE VERIFIED')

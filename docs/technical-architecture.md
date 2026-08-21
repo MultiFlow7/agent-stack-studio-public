@@ -316,3 +316,10 @@ flowchart LR
 - 搜索目的地是显式 discriminated union，仅允许既有页面、实体 UUID 和固定应用动作；不接受路径、URL、数据库表达式、Runtime 参数或密钥字段。
 - Renderer 以 3 秒只读刷新投影，活动 Run 时缩短为 500ms；项目外部修改通知会立即刷新。摘要失败不阻断既有页面和本地编辑流程。
 - 命令中心不产生数据库迁移，不改变 `.agent-stack` v2、Agent Stack Package v2、Runtime Plan/子进程协议、CLI 项目命令或 release compatibility manifest。
+
+## 32. M27 本地验收门禁契约
+
+- `config/local-acceptance.json` 是验收分类清单，不是产品配置或发布兼容事实；它只列出一级导航、带用途的输入提示和最终包控制。
+- `verify-local-acceptance.mjs` 扫描 tracked 与 prospective untracked production 源码，拒绝未处置工作标记、占位/死操作、未分类 harness 和导航契约断裂。
+- packaged E2E 使用 CDP Accessibility domain 读取最终 Renderer 的可访问树，并真实点击全部一级导航；它不注入 IPC 结果或替换 Core/Runtime。
+- M27 不增加 IPC、数据库迁移、项目/包 Schema、Runtime 消息或 CLI 行为；正式分发继续携带相同业务产物。
