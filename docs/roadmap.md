@@ -348,4 +348,6 @@ CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍�
 
 完成条件：`verify:evidence-ledger` 与 strict `verify:final-report` 通过；本地全套包验收与公开 Intel CI 成功；最终报告可从本地产物直接生成。
 
-实现状态：证据 manifest、矩阵解析器、严格验证器、报告生成器和回归测试已实现；等待完整本地打包和公开 CI 后落最终提交证据。
+实现状态：80 个测试文件 / 266 项测试全部通过；本地 arm64 `.app`、包内 CLI、DMG/ZIP、包验证、23 张中文截图和无凭证 dry-run 通过，报告 5 verified、3 skipped、2 disabled、0 blocked。`verify:evidence-ledger` 验证 136 条需求、8 条旅程和 23 个截图 producer。
+
+远程证据：私有实现提交 `2c9fdd9` 与公开实现提交 `7748351` 共享 tree `e3846498ce6d4621491f39ac1988e28f2a7cff96`；公开 GitHub macOS CI run `32446386099` 成功，完成 Intel x64 项目检查、应用打包、包验证、packaged E2E 和无凭证 release dry-run。
