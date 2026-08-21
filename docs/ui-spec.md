@@ -303,3 +303,10 @@ Multica 提供交互参考：Agent 列表进入详情，详情通过清楚的分
 - 图标按钮必须提供可访问名称；全局搜索同时声明 `Meta+K`，视觉 `kbd` 不进入冗余按钮名称。
 - 最终 `.app` 的 Accessibility Tree 必须暴露 main/navigation landmarks，所有可见按钮名称非空。
 - 输入 placeholder 只能补充格式或查询示例，不能代替 label；新增提示必须进入验收分类清单。
+
+## 32. M28 中文截图证据契约
+
+- 截图只由最终 `.app` 黑盒流程生成，不允许用单元测试 DOM、设计稿或 mock 页面代替。
+- 截图矩阵必须至少覆盖空、成功、失败、取消、冲突与外部刷新，并绑定旅程 ID 和生成器 token。
+- 截图必须保留中文标题、原因、状态文字与 suggested action；颜色仍只作辅助。
+- 截图固定为本地验收产物且 Git ignored，最终报告保存相对路径与 `local-only-gitignored` 发布边界。

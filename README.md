@@ -37,7 +37,7 @@ Agent Stack Studio 是一个仅面向 macOS 的本地桌面工具，用于识别
 - [正式分发架构就绪矩阵](./docs/release-readiness-matrix.md)
 - [本地验收审计](./docs/local-acceptance-audit.md)
 
-当前仓库已实现 M0 至 M27 的可运行纵向切片。M27 把 TODO/FIXME、占位/死操作、测试旁路和断路导航变成自动拒绝门禁，并在最终 `.app` 中遍历 7 个入口、检查 Chromium 可访问树。M26 用只读聚合提供真实工作区/revision、Run 状态、`⌘K` 本地全局搜索、实体直达和白名单应用操作。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
+当前仓库已实现 M0 至 M28 的可运行纵向切片。M28 把 97 条本地需求、39 条分发需求、8 条八状态用户旅程和 23 张本地中文打包截图组成机器可核验证据台账，并默认拒绝公开 snapshot 中未审核的二进制。M27 把 TODO/FIXME、占位/死操作、测试旁路和断路导航变成自动拒绝门禁，并在最终 `.app` 中遍历 7 个入口、检查 Chromium 可访问树。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
 
 ## 本地开发
 
