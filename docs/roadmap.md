@@ -335,3 +335,5 @@ CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍�
 完成条件：源码门禁、verifier tests、最终 arm64/x64 包与 packaged E2E 通过，输出 `LOCAL_ACCEPTANCE_AUDIT VERIFIED`、`NAVIGATION_REACHABILITY VERIFIED (7)` 和 `PACKAGED_ACCESSIBILITY_TREE VERIFIED`。
 
 本地实现状态：120 个 production 源文件、7 个入口、6 个输入提示和 2 组 packaged harness 已分类，未处置项 0；最终 arm64 `.app` 显示 21 个可见按钮、0 个无名称按钮，7 个入口全部实际打开。
+
+远程证据：私有实现提交 `a52437c` 与公开实现提交 `ebf6bfd` 共享 tree `191c580716fe4901bd26798e4483ed7f8e29f940`；公开 GitHub macOS CI run `32444148841` 成功，完成 Intel x64 项目检查、应用打包、包验证、全入口/AX tree packaged E2E 与无凭证 release dry-run。
