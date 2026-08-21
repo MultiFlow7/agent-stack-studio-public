@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentstack.studio/schemas/agent-stack-package-v2.json",
+  "title": "Agent Stack Package v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "packageFormatVersion",
+    "producer",
+    "project",
+    "excludedContent",
+    "contentHash"
+  ],
+  "properties": {
+    "$schema": { "const": "https://agentstack.studio/schemas/agent-stack-package-v2.json" },
+    "packageFormatVersion": { "const": 2 },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "Agent Stack Studio" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$" }
+      }
+    },
+    "project": { "$ref": "project-v2.schema.json" },
+    "excludedContent": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "keychain-secrets" },
+        { "const": "sqlite-local-index" },
+        { "const": "runs-and-experiments" },
+        { "const": "receipts-and-remote-mappings" },
+        { "const": "artifacts-and-logs" },
+        { "const": "absolute-local-paths" }
+      ],
+      "items": false,
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

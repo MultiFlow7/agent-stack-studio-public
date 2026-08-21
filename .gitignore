@@ -1,0 +1,17 @@
+node_modules/
+dist/
+out/
+release/
+artifacts/
+coverage/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.idea/
+.vscode/
+.impeccable/live/

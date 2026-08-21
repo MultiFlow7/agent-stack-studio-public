@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentstack.studio/schemas/project-v1.json",
+  "title": "Agent Stack Studio Project v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "formatVersion",
+    "id",
+    "name",
+    "description",
+    "revision",
+    "components",
+    "stack",
+    "versions",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "$schema": { "const": "https://agentstack.studio/schemas/project-v1.json" },
+    "formatVersion": { "const": 1 },
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "description": { "type": "string", "maxLength": 500 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "components": { "type": "array", "items": { "$ref": "#/$defs/component" } },
+    "stack": { "$ref": "#/$defs/stack" },
+    "versions": { "type": "array", "items": { "$ref": "#/$defs/version" } },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "capability": {
+      "type": "string",
+      "pattern": "^(execution-controller|model-provider|prompt-policy|context-builder|memory|tool-runtime|skill-provider|mcp-client|state-store|sandbox|trace|evaluator|human-gate|[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+)$"
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "implementation", "replaceability", "confidence", "activation"],
+      "properties": {
+        "capability": { "$ref": "#/$defs/capability" },
+        "implementation": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "replaceability": {
+          "enum": [
+            "built-in",
+            "configurable",
+            "disableable",
+            "replaceable",
+            "adapter-required",
+            "fork-required",
+            "locked",
+            "unknown"
+          ]
+        },
+        "confidence": { "enum": ["declared", "detected", "user-confirmed", "verified"] },
+        "activation": { "enum": ["owner-only", "always-active"] }
+      }
+    },
+    "descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "id",
+        "name",
+        "version",
+        "kind",
+        "source",
+        "platforms",
+        "provides",
+        "requires",
+        "configSchema",
+        "runtimeAdapter",
+        "compatibility",
+        "evidence"
+      ],
+      "properties": {
+        "contractVersion": { "const": 1 },
+        "id": { "type": "string", "pattern": "^[a-z0-9]+([.-][a-z0-9]+)+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$" },
+        "kind": { "enum": ["component", "adapter"] },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "location", "license"],
+          "properties": {
+            "kind": { "enum": ["built-in", "local-package", "static-import", "generated-adapter"] },
+            "location": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "license": { "type": "string", "minLength": 1, "maxLength": 120 }
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["darwin-arm64", "darwin-x64"] }
+        },
+        "provides": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/provider" } },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capability", "version"],
+            "properties": {
+              "capability": { "$ref": "#/$defs/capability" },
+              "version": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "configSchema": { "type": ["string", "null"] },
+        "runtimeAdapter": { "type": ["string", "null"] },
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "validation", "detail"],
+          "properties": {
+            "level": {
+              "enum": ["native", "configuration", "adapter", "fork", "blocked", "unknown"]
+            },
+            "validation": { "enum": ["declared", "contract-tested", "runtime-verified", "failed"] },
+            "detail": { "type": "string", "minLength": 1, "maxLength": 500 }
+          }
+        },
+        "evidence": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "sourceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "manifestPath",
+        "readmePath",
+        "licensePath",
+        "git",
+        "files",
+        "contentHash",
+        "inspectedAt"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "manifestPath": { "type": ["string", "null"] },
+        "readmePath": { "type": ["string", "null"] },
+        "licensePath": { "type": ["string", "null"] },
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["remote", "commit", "status"],
+          "properties": {
+            "remote": { "type": ["string", "null"] },
+            "commit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40}$" },
+            "status": { "enum": ["clean", "modified", "untracked", "unavailable"] }
+          }
+        },
+        "files": { "type": "array", "maxItems": 400, "items": { "type": "string" } },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of the canonical JSON version snapshot; Studio Core recomputes it on every read."
+        },
+        "inspectedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "descriptor",
+        "evidenceLevel",
+        "source",
+        "archivedAt",
+        "importedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "descriptor": { "$ref": "#/$defs/descriptor" },
+        "evidenceLevel": {
+          "enum": ["declared", "detected", "user-confirmed", "contract-tested", "runtime-verified"]
+        },
+        "source": { "$ref": "#/$defs/sourceSnapshot" },
+        "archivedAt": { "type": ["string", "null"], "format": "date-time" },
+        "importedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executionMode", "componentIds", "capabilityOwners"],
+      "properties": {
+        "executionMode": { "enum": ["agent-loop", "workflow", "hybrid", "external-harness"] },
+        "componentIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
+        },
+        "capabilityOwners": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capability", "componentId"],
+            "properties": {
+              "capability": { "$ref": "#/$defs/capability" },
+              "componentId": { "type": "string", "format": "uuid" }
+            }
+          }
+        }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "versionNumber", "sourceRevision", "contentHash", "snapshot", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "versionNumber": { "type": "integer", "minimum": 1 },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["project", "stack", "components"],
+          "properties": {
+            "project": {
+              "type": "object",
+              "required": ["id", "name"],
+              "properties": {
+                "id": { "type": "string", "format": "uuid" },
+                "name": { "type": "string" }
+              }
+            },
+            "stack": { "$ref": "#/$defs/stack" },
+            "components": { "type": "array", "items": { "$ref": "#/$defs/component" } }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

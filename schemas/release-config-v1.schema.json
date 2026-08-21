@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentstack.studio/schemas/release-config-v1.json",
+  "title": "Agent Stack Studio Release Configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "contractVersion",
+    "channel",
+    "downloadBaseUrl",
+    "updateFeedUrl",
+    "automaticUpdates",
+    "requirements"
+  ],
+  "properties": {
+    "$schema": { "const": "../schemas/release-config-v1.schema.json" },
+    "contractVersion": { "const": 1 },
+    "channel": { "enum": ["local", "alpha", "beta", "stable"] },
+    "downloadBaseUrl": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "updateFeedUrl": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "automaticUpdates": { "const": false },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["developerIdSignature", "notarization", "staple"],
+      "properties": {
+        "developerIdSignature": { "type": "boolean" },
+        "notarization": { "type": "boolean" },
+        "staple": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "detected-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "prepare": "node should-never-run.js"
+  }
+}

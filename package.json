@@ -1,0 +1,113 @@
+{
+  "name": "agent-stack-studio",
+  "version": "0.8.0",
+  "description": "A local-first macOS desktop studio for composing and testing Agent Stacks.",
+  "author": "MultiFlow7",
+  "type": "module",
+  "main": "dist/main/index.mjs",
+  "private": true,
+  "bin": {
+    "studio": "dist/cli/studio.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run build:renderer && npm run build:main && npm run build:preload && npm run build:runtime && npm run build:cli",
+    "build:cli": "esbuild src/cli/studio.ts --bundle --platform=node --format=esm --target=node24 --banner:js='#!/usr/bin/env -S node --use-env-proxy' --outfile=dist/cli/studio.mjs && chmod 755 dist/cli/studio.mjs",
+    "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/main/index.mjs --external:electron --external:cordis --external:better-sqlite3",
+    "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --format=cjs --target=node24 --outfile=dist/preload/index.cjs --external:electron",
+    "build:renderer": "vite build",
+    "build:runtime": "esbuild src/runtime/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/runtime/index.mjs --external:cordis",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run verify:public-snapshot && npm run build",
+    "clean": "node scripts/clean.mjs",
+    "dev": "npm run build && electron .",
+    "ensure:electron": "node -e \"require('electron')\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "package:mac": "npm run ensure:electron && npm run build && node scripts/package-macos.mjs",
+    "package:mac:dir": "npm run ensure:electron && npm run build && electron-builder --mac --dir --config.electronDist=node_modules/electron/dist",
+    "package:cli": "npm run build:cli && node scripts/verify-cli-package.mjs",
+    "release:dry-run": "node scripts/release-dry-run.mjs",
+    "test:e2e:packaged": "node scripts/e2e-packaged-app.mjs",
+    "verify:mac-package": "node scripts/verify-macos-package.mjs",
+    "start": "npm run dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "verify:public-snapshot": "node scripts/verify-public-snapshot.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
+    "better-sqlite3": "13.0.3",
+    "cordis": "4.0.0-rc.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@eslint/js": "9.39.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.0",
+    "@testing-library/user-event": "14.6.1",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.1.1",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.25.12",
+    "eslint": "9.39.1",
+    "eslint-plugin-react-hooks": "7.0.1",
+    "eslint-plugin-react-refresh": "0.4.24",
+    "jsdom": "27.2.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.46.4",
+    "vite": "7.3.6",
+    "vitest": "4.0.18"
+  },
+  "build": {
+    "appId": "studio.agentstack.desktop",
+    "productName": "Agent Stack Studio",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "config/**/*",
+      "schemas/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "dist/cli/**/*"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "minimumSystemVersion": "12.0",
+      "hardenedRuntime": true,
+      "notarize": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "extendInfo": {
+        "NSHumanReadableCopyright": "Copyright © 2026 MultiFlow7",
+        "LSApplicationCategoryType": "public.app-category.developer-tools"
+      }
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
+  }
+}

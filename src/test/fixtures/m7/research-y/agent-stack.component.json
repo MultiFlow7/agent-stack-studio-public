@@ -1,0 +1,51 @@
+{
+  "manifestVersion": 1,
+  "component": {
+    "contractVersion": 1,
+    "id": "fixture.research-y",
+    "name": "Fixture Research Y",
+    "version": "1.1.0",
+    "kind": "component",
+    "source": { "kind": "static-import", "location": ".", "license": "Apache-2.0" },
+    "platforms": ["darwin-arm64", "darwin-x64"],
+    "provides": [
+      {
+        "capability": "prompt-policy",
+        "implementation": "fixture.y.prompt",
+        "replaceability": "replaceable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      },
+      {
+        "capability": "context-builder",
+        "implementation": "fixture.y.context",
+        "replaceability": "replaceable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      },
+      {
+        "capability": "memory",
+        "implementation": "fixture.y.memory",
+        "replaceability": "replaceable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      },
+      {
+        "capability": "tool-runtime",
+        "implementation": "fixture.y.tools",
+        "replaceability": "replaceable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      }
+    ],
+    "requires": [{ "capability": "model-provider", "version": ">=1" }],
+    "configSchema": null,
+    "runtimeAdapter": null,
+    "compatibility": {
+      "level": "native",
+      "validation": "declared",
+      "detail": "Fixture 声明原生兼容。"
+    },
+    "evidence": [{ "kind": "manifest", "detail": "本地 fixture manifest 声明。" }]
+  }
+}

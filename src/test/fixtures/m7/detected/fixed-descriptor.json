@@ -1,0 +1,27 @@
+{
+  "contractVersion": 1,
+  "id": "local.detected-fixture",
+  "name": "Detected Fixture",
+  "version": "1.0.0",
+  "kind": "component",
+  "source": { "kind": "static-import", "location": ".", "license": "UNLICENSED" },
+  "platforms": ["darwin-arm64", "darwin-x64"],
+  "provides": [
+    {
+      "capability": "trace",
+      "implementation": "fixture.detected.trace",
+      "replaceability": "replaceable",
+      "confidence": "user-confirmed",
+      "activation": "owner-only"
+    }
+  ],
+  "requires": [],
+  "configSchema": null,
+  "runtimeAdapter": null,
+  "compatibility": {
+    "level": "native",
+    "validation": "declared",
+    "detail": "用户已确认静态 Descriptor。"
+  },
+  "evidence": [{ "kind": "user-confirmation", "detail": "由用户更正并确认。" }]
+}

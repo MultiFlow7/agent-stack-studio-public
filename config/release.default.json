@@ -1,0 +1,13 @@
+{
+  "$schema": "../schemas/release-config-v1.schema.json",
+  "contractVersion": 1,
+  "channel": "local",
+  "downloadBaseUrl": null,
+  "updateFeedUrl": null,
+  "automaticUpdates": false,
+  "requirements": {
+    "developerIdSignature": false,
+    "notarization": false,
+    "staple": false
+  }
+}

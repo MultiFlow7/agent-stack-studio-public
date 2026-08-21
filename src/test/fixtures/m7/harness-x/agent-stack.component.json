@@ -1,0 +1,51 @@
+{
+  "manifestVersion": 1,
+  "component": {
+    "contractVersion": 1,
+    "id": "fixture.harness-x",
+    "name": "Fixture Harness X",
+    "version": "1.0.0",
+    "kind": "component",
+    "source": { "kind": "static-import", "location": ".", "license": "MIT" },
+    "platforms": ["darwin-arm64", "darwin-x64"],
+    "provides": [
+      {
+        "capability": "execution-controller",
+        "implementation": "fixture.x.loop",
+        "replaceability": "configurable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      },
+      {
+        "capability": "model-provider",
+        "implementation": "fixture.x.model",
+        "replaceability": "configurable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      },
+      {
+        "capability": "prompt-policy",
+        "implementation": "fixture.x.prompt",
+        "replaceability": "configurable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      },
+      {
+        "capability": "context-builder",
+        "implementation": "fixture.x.context",
+        "replaceability": "configurable",
+        "confidence": "declared",
+        "activation": "owner-only"
+      }
+    ],
+    "requires": [],
+    "configSchema": null,
+    "runtimeAdapter": null,
+    "compatibility": {
+      "level": "native",
+      "validation": "declared",
+      "detail": "Fixture 声明稳定的 Studio Contract。"
+    },
+    "evidence": [{ "kind": "manifest", "detail": "本地 fixture manifest 声明。" }]
+  }
+}

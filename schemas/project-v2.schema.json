@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentstack.studio/schemas/project-v2.json",
+  "title": "Agent Stack Studio Project v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "formatVersion",
+    "id",
+    "name",
+    "description",
+    "revision",
+    "components",
+    "stack",
+    "workflows",
+    "versions",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "$schema": { "const": "https://agentstack.studio/schemas/project-v2.json" },
+    "formatVersion": { "const": 2 },
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "description": { "type": "string", "maxLength": 500 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "project-v1.schema.json#/$defs/component" }
+    },
+    "stack": { "$ref": "project-v1.schema.json#/$defs/stack" },
+    "workflows": { "type": "array", "items": { "$ref": "#/$defs/workflow" } },
+    "versions": { "type": "array", "items": { "$ref": "#/$defs/projectVersion" } },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "workflowNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "kind", "operation"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "kind": { "const": "operation" },
+            "operation": { "type": "string", "minLength": 1, "maxLength": 160 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "kind", "componentId"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "kind": { "const": "component" },
+            "componentId": { "type": "string", "format": "uuid" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "kind", "agentVersionId"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "kind": { "const": "agent-version" },
+            "agentVersionId": { "type": "string", "format": "uuid" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "kind", "workflowId", "workflowVersionId"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "kind": { "const": "workflow-version" },
+            "workflowId": { "type": "string", "format": "uuid" },
+            "workflowVersionId": { "type": "string", "format": "uuid" }
+          }
+        }
+      ]
+    },
+    "workflowEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "from": { "type": "string", "format": "uuid" },
+        "to": { "type": "string", "format": "uuid" }
+      }
+    },
+    "workflowVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "versionNumber", "sourceRevision", "contentHash", "snapshot", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "versionNumber": { "type": "integer", "minimum": 1 },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "description", "nodes", "edges"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "description": { "type": "string", "maxLength": 500 },
+            "nodes": { "type": "array", "items": { "$ref": "#/$defs/workflowNode" } },
+            "edges": { "type": "array", "items": { "$ref": "#/$defs/workflowEdge" } }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "revision",
+        "nodes",
+        "edges",
+        "versions",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "revision": { "type": "integer", "minimum": 0 },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/workflowNode" } },
+        "edges": { "type": "array", "items": { "$ref": "#/$defs/workflowEdge" } },
+        "versions": { "type": "array", "items": { "$ref": "#/$defs/workflowVersion" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "projectVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "versionNumber", "sourceRevision", "contentHash", "snapshot", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "versionNumber": { "type": "integer", "minimum": 1 },
+        "sourceRevision": { "type": "integer", "minimum": 0 },
+        "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["project", "stack", "components"],
+          "properties": {
+            "project": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name"],
+              "properties": {
+                "id": { "type": "string", "format": "uuid" },
+                "name": { "type": "string", "minLength": 1, "maxLength": 100 }
+              }
+            },
+            "stack": { "$ref": "project-v1.schema.json#/$defs/stack" },
+            "components": {
+              "type": "array",
+              "items": { "$ref": "project-v1.schema.json#/$defs/component" }
+            },
+            "workflows": { "type": "array", "items": { "$ref": "#/$defs/workflow" } }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

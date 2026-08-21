@@ -1,0 +1,43 @@
+{
+  "contractVersion": 1,
+  "application": {
+    "versionSource": "package.json#version",
+    "platform": "darwin",
+    "architectures": ["arm64", "x64"],
+    "minimumMacOS": "12.0",
+    "bundleId": "studio.agentstack.desktop"
+  },
+  "project": {
+    "currentFormatVersion": 2,
+    "minimumReadableFormatVersion": 0,
+    "schemaId": "https://agentstack.studio/schemas/project-v2.json",
+    "schemaPath": "schemas/project-v2.schema.json",
+    "portableFacts": ["components", "stack", "capabilityOwners", "workflows", "versions"]
+  },
+  "agentStackPackage": {
+    "currentFormatVersion": 2,
+    "schemaId": "https://agentstack.studio/schemas/agent-stack-package-v2.json",
+    "schemaPath": "schemas/agent-stack-package-v2.schema.json",
+    "contentHash": "sha256",
+    "secretPolicy": "reject-local-paths-and-exclude-keychain-local-data"
+  },
+  "database": {
+    "currentSchemaVersion": 8,
+    "responsibility": "local-index-run-experiment-receipt-artifact-reference"
+  },
+  "contracts": {
+    "domainModel": 1,
+    "ipc": 1,
+    "runtimeProtocol": 1,
+    "cliEnvelope": 1
+  },
+  "distributionOnlyMutableFields": [
+    "credentials",
+    "appleNotarization",
+    "releaseMetadata",
+    "downloadBaseUrl",
+    "updateFeedUrl",
+    "channel",
+    "applePlatformRequirements"
+  ]
+}

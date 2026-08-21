@@ -1,0 +1,39 @@
+{
+  "manifestVersion": 1,
+  "component": {
+    "contractVersion": 1,
+    "id": "fixture.legacy-memory-adapter",
+    "name": "Fixture Legacy Memory Adapter",
+    "version": "0.3.0",
+    "kind": "adapter",
+    "source": {
+      "kind": "generated-adapter",
+      "location": ".",
+      "license": "UNLICENSED"
+    },
+    "platforms": ["darwin-arm64", "darwin-x64"],
+    "provides": [
+      {
+        "capability": "memory",
+        "implementation": "fixture.legacy.memory.bridge",
+        "replaceability": "adapter-required",
+        "confidence": "detected",
+        "activation": "owner-only"
+      }
+    ],
+    "requires": [{ "capability": "context-builder", "version": null }],
+    "configSchema": "./schema.json",
+    "runtimeAdapter": "./dist/adapter.js",
+    "compatibility": {
+      "level": "adapter",
+      "validation": "contract-tested",
+      "detail": "生成的 Adapter 已通过静态契约测试，但尚未通过最小运行验证。"
+    },
+    "evidence": [
+      {
+        "kind": "contract-test",
+        "detail": "Fixture 只声明契约测试证据，不授予 Runtime 信任。"
+      }
+    ]
+  }
+}
