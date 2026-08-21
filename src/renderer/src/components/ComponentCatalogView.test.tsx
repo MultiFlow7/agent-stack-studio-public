@@ -56,6 +56,14 @@ function installComponentApi(options?: {
 }
 
 describe('ComponentCatalogView', () => {
+  it('opens a command-center component destination directly', async () => {
+    const { get } = installComponentApi()
+    render(<ComponentCatalogView initialComponentId={item.component.id} />)
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith(item.component.id))
+    expect(await screen.findByRole('heading', { name: 'Manifest 与来源' })).toBeVisible()
+  })
+
   it('shows the local empty state after the catalog finishes loading', async () => {
     installComponentApi({ catalog: vi.fn(() => Promise.resolve([])) })
     render(<ComponentCatalogView />)

@@ -291,3 +291,12 @@ Workflow 不与当前产品逻辑冲突。它属于执行控制层，而不是�
 - Preload 必须对搜索、检查、交接、取消、复制与打开 URL 的错误去除 Electron IPC 内部前缀；Renderer 不显示 `Error invoking remote method`。
 - packaged 证据不得依赖 GitHub 可用性：用首次安全空状态和本地输入校验失败证明中文边界、键盘焦点与恢复路径。真实 Provider 行为由 Adapter/Service/Renderer 自动化分层验证。
 - M25 不接收 Token、不新增 Provider、不持久化查询、不下载或执行仓库，也不改变项目、数据库、Runtime 或 CLI 项目协议。
+
+## 29. M26 工作区命令中心与统一状态
+
+- 顶栏必须显示当前 Studio 项目名称、revision 与验证状态；没有项目、项目阻断和外部修改都使用明确文字，不能继续显示固定占位工作区。
+- 顶栏 Run 状态必须来自已保存 Run 事实，区分活动、完成、需关注和无记录；点击状态可进入对应 Run 历史。
+- 全局搜索通过 `⌘K` 或顶栏按钮打开，只检索本机项目、Agent、Component、Run、Experiment 与白名单应用操作，不接受路径、SQL、密钥或网络查询。
+- 搜索结果必须支持完整键盘选择和实体直达；加载、无结果、失败与关闭都保留可访问语义和焦点边界。
+- 工作区摘要是既有项目与本机记录的只读聚合，不进入 SQLite、`.agent-stack`、Agent Stack Package、Runtime 消息或 CLI 项目协议。
+- Agent、Stack、Run、Experiment 与发布状态使用集中化中文词汇；状态始终以文字和图标表达，颜色只作辅助。

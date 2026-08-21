@@ -16,6 +16,7 @@ import { experimentCellStatusLabels, experimentStatusLabels } from '../copy'
 
 interface ExperimentsViewProps {
   agentId?: string
+  experimentId?: string
 }
 
 const activeStatuses = new Set<ExperimentRecord['status']>(['running', 'cancelling'])
@@ -38,7 +39,7 @@ function deltaLabel(value: number | null): string {
   return `${value > 0 ? '+' : ''}${value} ms`
 }
 
-export function ExperimentsView({ agentId }: ExperimentsViewProps) {
+export function ExperimentsView({ agentId, experimentId }: ExperimentsViewProps) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [experiments, setExperiments] = useState<ExperimentRecord[]>([])
   const [detail, setDetail] = useState<ExperimentDetail>()
@@ -94,6 +95,10 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (experimentId) void loadDetail(experimentId)
+  }, [experimentId, loadDetail])
 
   const hasActiveExperiment = useMemo(
     () => experiments.some((experiment) => activeStatuses.has(experiment.status)),

@@ -308,3 +308,16 @@
 远程证据：实现提交 `1777dcd`，跨架构 Experiment 取消证据稳定化提交 `18e7ce1`、`bbfe384`；GitHub macOS CI run `32426869067` 在精确 head `bbfe3842e859cd8de79f1ca935fb1114b7f73b37` 上通过，包括 Intel x64 项目检查、应用打包、包验证、Source 状态 packaged E2E 和无凭证 release dry-run。
 
 CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍禁用时的跨架构 E2E 竞态，修复后由上述 run 验证；证据提交 `3d150fc` 的 run `32427694409` 和 `a90d8a5` 的 run `32428402546` 多次未分配 runner 且没有执行 step。用户确认可使用公开仓库后，为避免泄露早期提交作者邮箱，保留私有历史而不改写，以隐私门禁审计后的单提交快照建立公开 CI 镜像。私有 `f525c4c` 与公开 `f2b6e62` 共享 tree `055a13a70b08eb088ae2d63558514bf7b7a8b7c8`；公开 Intel CI run `32438973147` 通过完整项目检查、打包、包验证、packaged E2E 和无凭证 dry-run，M25 证据门禁由此关闭。
+
+## M26：工作区命令中心与统一状态词汇
+
+- Main 以只读服务组合 Studio Project、Agent 状态、Component 目录、Run 和 Experiment，不复制事实或引入迁移。
+- 顶栏显示真实项目/revision/验证状态与最近 Run，项目外部变化和活动 Run 触发更快刷新；摘要故障不阻断当前页面。
+- `⌘K` 命令面板只搜索本机元数据与固定白名单操作，支持加载、无结果、失败、焦点约束、上下选择、Enter 直达和 Escape 关闭。
+- Component、Run 与 Experiment 页面接收严格 UUID 目的地后打开完整详情；Agent 继续使用既有详情服务。
+- Agent、Stack、Run、Experiment、Publish、工作区与活动状态集中到同一 Renderer 词汇层，图标和文字始终伴随颜色。
+- packaged E2E 必须在真实 Hybrid Run 后验证工作区与 Run 状态、用 `⌘K` 找到并打开本机 Agent，并保存中文命令中心截图。
+
+完成条件：Core/Service/IPC/Preload/Renderer 与直达页面测试通过；最终 `.app` 输出 `WORKSPACE_COMMAND_CENTER VERIFIED`；隐私门禁、全套本地验证和公开 Intel CI 均成功。
+
+本地实现状态：78 个测试文件 / 259 项测试、生产构建、CLI、arm64 DMG/ZIP、包验证和 packaged E2E 已通过；最终项目 revision 15、GUI/CLI v2 包逐字一致，`artifacts/packaged-app-e2e-command-center.png` 已人工复核。公开 Intel CI 证据在实现提交同步后补记。

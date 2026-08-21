@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CapabilityId, ComponentRecord } from '../../../shared/component'
 import type { StackState } from '../../../shared/runtime-plan'
-import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
+import { capabilityLabel, compatibilityLabels, stackStatusLabels, validationLabels } from '../copy'
 
 interface StackEditorViewProps {
   agentId: string
@@ -312,7 +312,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
             <WarningCircle aria-hidden="true" size={22} weight="fill" />
           )}
           <div>
-            <h3>Runtime Plan {stack.compilation.status === 'ready' ? '已就绪' : '已阻断'}</h3>
+            <h3>Runtime Plan {stackStatusLabels[stack.compilation.status]}</h3>
             <p>
               {stack.compilation.status === 'ready'
                 ? '所有 Owner、依赖和兼容性检查已通过。'

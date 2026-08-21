@@ -97,8 +97,8 @@
 | LC-083 | AGENTS.md；UI 10/11 | 主要流程覆盖加载、空、成功、失败、取消、冲突、外部刷新和完整键盘路径 | PARTIAL | Agent/Component 生命周期覆盖取消、成功、历史失败和键盘；Studio Project 覆盖外部刷新与冲突；Run/Experiment 覆盖多终态；Source Discovery 完整覆盖空、加载、成功、无结果、取消和四类失败/键盘恢复 | API 错误多为结构化 | 243 tests，但缺逐页面全状态清单 | packaged 覆盖 Agent 历史冲突、Component 生命周期、Studio Project 外部刷新、Run 超时、Experiment 部分取消与 Source 本地失败 | 逐页面补齐测试/截图后更新 |
 | LC-084 | PRODUCT Accessibility；UI 10 | WCAG 2.2 AA：语义、焦点、对比、错误、图标名称、减少动态 | PARTIAL | 全局样式与语义基础 | N/A | accessibility contract / UI tests | packaged 截图有焦点，未做完整对比/VoiceOver 验收 | 完成本地可自动化审计与人工截图清单 |
 | LC-085 | UI 2 | 记住窗口大小、侧栏状态和最后访问位置 | COMPLETE | 侧栏有键盘可达收起/展开；重载恢复最后页面和侧栏 | Main 记录可见屏幕内的 normal bounds/最大化；严格偏好 IPC | preferences service/IPC/App 测试，包括损坏回退和离屏坐标 | `PERSISTED_UI_PREFERENCES VERIFIED`；`artifacts/packaged-app-e2e-preferences.png` | M17 关闭；复用 v7 `app_preferences`，不改项目格式 |
-| LC-086 | UI 2；PRD 4 | 顶栏提供当前工作区、全局搜索、运行状态和应用级操作 | PARTIAL | 当前仅固定工作区与本地状态，无全局搜索/真实运行状态 | 无聚合 API | 无 | packaged 可见固定顶栏 | 后续实现真实顶栏状态与搜索 |
-| LC-087 | UI 9 | 全局状态词在页面间一致，图标+文字+颜色共同表达 | PARTIAL | copy 映射存在，仍有固定/分散状态文案 | schemas 统一部分状态 | UI tests 部分覆盖 | 截图有限 | 做状态词审计并集中化 |
+| LC-086 | UI 2；PRD 4 | 顶栏提供当前工作区、全局搜索、运行状态和应用级操作 | COMPLETE | 真实项目/revision/验证状态、Run 状态、`⌘K` 搜索、创建与实体直达；摘要失败不阻断页面 | 只读 `CommandCenterService`；严格 snapshot/search IPC 与目的地白名单 | Core/Service/IPC/App/CommandPalette 及 Component/Run/Experiment 直达测试；Project summary 不吞外部修改回归 | `WORKSPACE_COMMAND_CENTER VERIFIED`；`artifacts/packaged-app-e2e-command-center.png`；真实 Hybrid Run 后键盘搜索并打开 Agent | M26 关闭；不新增持久化或执行权限 |
+| LC-087 | UI 9 | 全局状态词在页面间一致，图标+文字+颜色共同表达 | COMPLETE | Run、Experiment、Stack、Publish、工作区与活动状态集中于 `copy.ts`；顶栏/命令面板用图标+文字，颜色仅辅助 | 共享 Schema 固定状态集合；命令中心输出严格复核 | App、Capability、StackEditor、PublishPanel、Runs、Experiments tests；类型穷尽映射 | M26 命令中心与既有中文状态截图复核 | M26 关闭；后续新增状态必须进入集中映射 |
 | LC-088 | 技术架构 6；用户目标 | 导出不含密钥的可移植 Agent Stack Package | COMPLETE | Studio 项目页原生保存、成功/取消/失败和键盘路径 | 共享 Core `exportProjectPackage`；`studio project export --output` | package builder/hash/path audit、Workflow v2 保留、Core/CLI/GUI 一致、严格 IPC、release compatibility 测试 | 最终 `.app` GUI 与包内 CLI 在含 Component、Workflow Version 的 revision 15 逐字一致；派生处置任务不进入包；`SECRET_FREE_PORTABLE_PACKAGE VERIFIED` | M18 基础；M21 包 v2；M22 回归非持久化边界 |
 | LC-089 | PRD 8 | 团队账号、实时协作、云 DB、远程 Runtime、市场、同进程热替换 | EXPLICITLY-OUT-OF-SCOPE | 无 | 无 | 文档边界 | N/A | 不扩展范围 |
 | LC-090 | 组件模型 8；用户硬边界 | 未知第三方代码、脚本、Hook、Makefile、二进制和依赖安装默认不执行 | COMPLETE | 清晰边界，无执行按钮 | inspect/handoff only | static scanner/inspector/runtime allowlist tests | packaged Hybrid 使用内置实现 | 保持 |
@@ -112,4 +112,4 @@
 
 ## 首次冻结审计结论
 
-首次冻结共 97 项。Agent/Component 生命周期、真实 Agent 状态、组件详情、Adapter/Fork 处置链、Workflow 版本化 DAG、Run 历史、Experiment 矩阵、来源发现状态、迁移恢复、界面偏好、可移植包和 packaged GUI↔CLI 一致已由 M13–M25 逐项关闭；当前为 COMPLETE 85、PARTIAL 7、EXTERNAL-BLOCKED 1、EXPLICITLY-OUT-OF-SCOPE 4，MISSING/UNTESTED 均为 0。剩余 PARTIAL 项继续按冻结行收敛。真实 Multica Transport 单独保持外部阻断；文档明确排除的云端与团队能力不进入本地实现。
+首次冻结共 97 项。Agent/Component 生命周期、真实 Agent 状态、组件详情、Adapter/Fork 处置链、Workflow 版本化 DAG、Run 历史、Experiment 矩阵、来源发现状态、工作区命令中心、统一状态词汇、迁移恢复、界面偏好、可移植包和 packaged GUI↔CLI 一致已由 M13–M26 逐项关闭；当前为 COMPLETE 87、PARTIAL 5、EXTERNAL-BLOCKED 1、EXPLICITLY-OUT-OF-SCOPE 4，MISSING/UNTESTED 均为 0。剩余 PARTIAL 项继续按冻结行收敛。真实 Multica Transport 单独保持外部阻断；文档明确排除的云端与团队能力不进入本地实现。

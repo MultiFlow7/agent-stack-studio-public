@@ -47,6 +47,8 @@ import {
 } from './preferences/application-preferences-service'
 import { registerPreferencesIpc } from './ipc/register-preferences-ipc'
 import { defaultApplicationPreferences } from '../shared/preferences'
+import { CommandCenterService } from './command-center/command-center-service'
+import { registerCommandCenterIpc } from './ipc/register-command-center-ipc'
 
 app.enableSandbox()
 
@@ -332,6 +334,15 @@ async function bootstrap(): Promise<void> {
   })
   const unregisterDiscoveryIpc = registerDiscoveryIpc(discoveryService)
   const unregisterPreferencesIpc = registerPreferencesIpc(applicationPreferences)
+  const unregisterCommandCenterIpc = registerCommandCenterIpc(
+    new CommandCenterService({
+      projects: studioProjectService,
+      agents: agentStatus,
+      components: componentCatalog,
+      runs,
+      experiments,
+    }),
+  )
   unregisterIpc = () => {
     unregisterAgentIpc()
     unregisterSecretIpc()
@@ -343,6 +354,7 @@ async function bootstrap(): Promise<void> {
     unregisterStudioProjectIpc()
     unregisterDiscoveryIpc()
     unregisterPreferencesIpc()
+    unregisterCommandCenterIpc()
   }
 
   createApplicationMenu()

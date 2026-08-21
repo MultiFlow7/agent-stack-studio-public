@@ -308,3 +308,11 @@ flowchart LR
 - Preload 的六个 discovery 白名单方法统一使用相同错误净化入口，移除 Electron invoke 前缀后才交给 Renderer；输入与成功输出继续分别经过原有 Zod Schema。
 - Renderer 的失败展示是临时 UI 状态，不写 SQLite、`.agent-stack`、日志或查询历史；本地少于两字符的校验在 IPC 前完成。
 - packaged E2E 只触发本地校验，不让 CI 成功取决于 GitHub 网络。Provider 的 HTTP/timeout/network 语义由注入 Fetch 的 Adapter tests 验证，不引入产品 mock 开关。
+
+## 31. M26 工作区命令中心只读聚合契约
+
+- `CommandCenterService` 只组合 `StudioProjectService`、`AgentStatusService`、`ComponentCatalogService`、`RunService` 和 `ExperimentService` 的既有事实；纯 Core 函数负责摘要、索引、排序与搜索。
+- `command-center:snapshot` 不接受输入；`command-center:search` 只接受最长 100 字符的严格查询对象。Main 输入和输出、Preload 输入和输出均经共享 Zod Schema 复核。
+- 搜索目的地是显式 discriminated union，仅允许既有页面、实体 UUID 和固定应用动作；不接受路径、URL、数据库表达式、Runtime 参数或密钥字段。
+- Renderer 以 3 秒只读刷新投影，活动 Run 时缩短为 500ms；项目外部修改通知会立即刷新。摘要失败不阻断既有页面和本地编辑流程。
+- 命令中心不产生数据库迁移，不改变 `.agent-stack` v2、Agent Stack Package v2、Runtime Plan/子进程协议、CLI 项目命令或 release compatibility manifest。

@@ -14,7 +14,13 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { ExecutionMode } from '../../../shared/agent'
 import type { AgentDetail } from '../../../shared/agent-detail'
 import type { AgentStatusProjection } from '../../../shared/agent-status'
-import { executionModeLabels, experimentStatusLabels, runStatusLabels } from '../copy'
+import {
+  executionModeLabels,
+  experimentStatusLabels,
+  publishStatusLabels,
+  runStatusLabels,
+  stackStatusLabels,
+} from '../copy'
 import { ExperimentsView } from './ExperimentsView'
 import { RunsView } from './RunsView'
 import { StackEditorView } from './StackEditorView'
@@ -222,9 +228,7 @@ export function AgentDetailView({
             <span className="status-label">
               {status.currentVersion ? `版本 ${status.currentVersion.versionNumber}` : '无版本'}
             </span>
-            <span className="status-label">
-              Stack {status.stack.status === 'ready' ? '就绪' : '已阻断'}
-            </span>
+            <span className="status-label">Stack {stackStatusLabels[status.stack.status]}</span>
           </div>
           <p>{detail.agent.description || '暂无描述'}</p>
         </div>
@@ -383,9 +387,8 @@ export function AgentDetailView({
                 <div>
                   <dt>Stack 状态</dt>
                   <dd>
-                    {status.stack.status === 'ready' ? '就绪' : '已阻断'} ·{' '}
-                    {status.stack.componentCount} 个组件 · {status.stack.ownerCount} 个 Owner ·{' '}
-                    {status.stack.issueCount} 个未解决问题
+                    {stackStatusLabels[status.stack.status]} · {status.stack.componentCount} 个组件
+                    · {status.stack.ownerCount} 个 Owner · {status.stack.issueCount} 个未解决问题
                   </dd>
                 </div>
                 <div>
@@ -413,11 +416,7 @@ export function AgentDetailView({
                   <dd>
                     {status.latestPublish
                       ? `${status.latestPublish.targetLabel} · ${
-                          status.latestPublish.status === 'succeeded'
-                            ? '已成功'
-                            : status.latestPublish.status === 'failed'
-                              ? '失败'
-                              : '进行中'
+                          publishStatusLabels[status.latestPublish.status]
                         } · ${new Date(status.latestPublish.occurredAt).toLocaleString('zh-CN')}`
                       : '尚未发布'}
                   </dd>

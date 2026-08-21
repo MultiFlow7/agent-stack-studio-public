@@ -179,10 +179,13 @@ function installApi(initialDetail?: ExperimentDetail) {
   const exportExperiment = vi.fn(() =>
     Promise.resolve({ status: 'saved' as const, fileName: 'experiment.json' }),
   )
+  const get = vi.fn<StudioApi['experiments']['get']>(() =>
+    detail ? Promise.resolve(detail) : Promise.reject(new Error('not found')),
+  )
   const experiments: StudioApi['experiments'] = {
     create,
     list: vi.fn(() => Promise.resolve(records)),
-    get: vi.fn(() => (detail ? Promise.resolve(detail) : Promise.reject(new Error('not found')))),
+    get,
     refreshDrift: vi.fn(() =>
       detail ? Promise.resolve(detail) : Promise.reject(new Error('not found')),
     ),
@@ -233,16 +236,26 @@ function installApi(initialDetail?: ExperimentDetail) {
     },
     maintenance: {} as StudioApi['maintenance'],
     preferences: {} as StudioApi['preferences'],
+    commandCenter: {} as StudioApi['commandCenter'],
     discovery: {} as StudioApi['discovery'],
     menu: {
       onCreateAgent: vi.fn(() => () => undefined),
       onOpenSettings: vi.fn(() => () => undefined),
     },
   }
-  return { create, start, cancel, exportExperiment }
+  return { create, get, start, cancel, exportExperiment }
 }
 
 describe('ExperimentsView', () => {
+  it('opens a command-center Experiment destination directly', async () => {
+    const detail = createDetail('completed')
+    const { get } = installApi(detail)
+    render(<ExperimentsView experimentId={detail.experiment.id} />)
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith(detail.experiment.id))
+    expect(await screen.findByRole('heading', { name: 'Prompt 与随机种子对照实验' })).toBeVisible()
+  })
+
   it('teaches the empty state and creates the F/G matrix from the keyboard', async () => {
     const { create } = installApi()
     const user = userEvent.setup()

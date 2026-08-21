@@ -12,6 +12,10 @@ import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
 
 type CatalogStatus = 'loading' | 'ready' | 'error'
 
+interface ComponentCatalogViewProps {
+  initialComponentId?: string
+}
+
 function sourceLabel(kind: ComponentCatalogItem['component']['descriptor']['source']['kind']) {
   if (kind === 'built-in') return '内置'
   if (kind === 'generated-adapter') return '生成的 Adapter'
@@ -19,7 +23,7 @@ function sourceLabel(kind: ComponentCatalogItem['component']['descriptor']['sour
   return '本地包'
 }
 
-export function ComponentCatalogView() {
+export function ComponentCatalogView({ initialComponentId }: ComponentCatalogViewProps) {
   const [items, setItems] = useState<ComponentCatalogItem[]>([])
   const [status, setStatus] = useState<CatalogStatus>('loading')
   const [error, setError] = useState<string>()
@@ -76,6 +80,12 @@ export function ComponentCatalogView() {
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!initialComponentId) return
+    const timer = window.setTimeout(() => void openDetail(initialComponentId), 0)
+    return () => window.clearTimeout(timer)
+  }, [initialComponentId, openDetail])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('zh-CN')

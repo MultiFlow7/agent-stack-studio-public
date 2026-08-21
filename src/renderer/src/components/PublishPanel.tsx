@@ -15,6 +15,7 @@ import {
   type PublishPreview,
   type PublishTarget,
 } from '../../../shared/publish'
+import { publishStatusLabels } from '../copy'
 
 interface PublishPanelProps {
   agentId: string
@@ -302,11 +303,7 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
                     <td>#{receipt.attempt}</td>
                     <td>
                       <span className={`receipt-status receipt-status--${receipt.status}`}>
-                        {receipt.status === 'succeeded'
-                          ? '已发布'
-                          : receipt.status === 'failed'
-                            ? '失败，可重试'
-                            : '处理中'}
+                        {publishStatusLabels[receipt.status]}
                       </span>
                       {receipt.failure ? <small>{receipt.failure.message}</small> : null}
                     </td>

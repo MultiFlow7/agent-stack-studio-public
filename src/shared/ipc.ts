@@ -71,6 +71,11 @@ import type {
 } from './secret-reference'
 import type { RendererPreferences } from './preferences'
 import type { ProjectExportResult } from './agent-stack-package'
+import type {
+  CommandCenterResult,
+  CommandCenterSearchInput,
+  CommandCenterSnapshot,
+} from './command-center'
 
 export const ipcChannels = {
   agentsCreate: 'agents:create',
@@ -118,6 +123,8 @@ export const ipcChannels = {
   maintenanceRevealDataLocation: 'maintenance:reveal-data-location',
   preferencesGet: 'preferences:get',
   preferencesUpdate: 'preferences:update',
+  commandCenterSnapshot: 'command-center:snapshot',
+  commandCenterSearch: 'command-center:search',
   studioProjectCurrent: 'studio-project:current',
   studioProjectOpen: 'studio-project:open',
   studioProjectInit: 'studio-project:init',
@@ -211,6 +218,10 @@ export interface StudioApi {
   preferences: {
     get(): Promise<RendererPreferences>
     update(input: RendererPreferences): Promise<RendererPreferences>
+  }
+  commandCenter: {
+    snapshot(): Promise<CommandCenterSnapshot>
+    search(input: CommandCenterSearchInput): Promise<CommandCenterResult[]>
   }
   studioProject?: {
     current(): Promise<StudioProjectState>

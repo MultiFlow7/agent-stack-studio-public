@@ -61,6 +61,7 @@ describe('StudioProjectService GUI/CLI consistency', () => {
     await executeCliCommand(
       parseArguments(['stack', 'remove', component.id, '--project', projectRoot, '--json']),
     )
+    expect((await service.summary()).project!.stack.componentIds).toEqual([])
     await changed
     expect((await service.current(true)).project!.stack.componentIds).toEqual([])
 

@@ -113,6 +113,7 @@ function installApi() {
     },
     maintenance: {} as StudioApi['maintenance'],
     preferences: {} as StudioApi['preferences'],
+    commandCenter: {} as StudioApi['commandCenter'],
     discovery: {} as StudioApi['discovery'],
     menu: {
       onCreateAgent: vi.fn(() => () => undefined),
@@ -140,7 +141,7 @@ describe('StackEditorView', () => {
     await user.click(within(promptGroup).getByRole('radio', { name: /本地 Harness X/ }))
     await user.click(within(contextGroup).getByRole('radio', { name: /研究扩展 Y/ }))
 
-    expect(await screen.findByRole('heading', { name: 'Runtime Plan 已就绪' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Runtime Plan 就绪' })).toBeVisible()
     await waitFor(() => expect(selectOwner).toHaveBeenCalledTimes(2))
   })
 })

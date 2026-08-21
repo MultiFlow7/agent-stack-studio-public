@@ -71,6 +71,21 @@ export class StudioProjectService {
     })
   }
 
+  async summary(): Promise<StudioProjectState> {
+    if (!this.#activeRoot) return this.current()
+    const result = await this.#core.inspectProject(this.#activeRoot)
+    this.#startWatching(result.path)
+    return studioProjectStateSchema.parse({
+      projectPath: result.path,
+      project: result.project,
+      validation: this.#core.validate(result.project),
+      integrity: result.integrity,
+      recovered: result.recovered || this.#pendingRecoveryNotice,
+      changedExternally: false,
+      cliPath: this.#cliPath,
+    })
+  }
+
   async open(rootPath: string): Promise<StudioProjectState> {
     const result = await this.#core.inspectProject(rootPath)
     this.#pendingRecoveryNotice = result.recovered

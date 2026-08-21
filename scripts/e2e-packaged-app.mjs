@@ -166,6 +166,77 @@ async function captureSourceDiscoveryEvidence(client, screenshotPath) {
   return { errorScreenshotPath, failureCopy, idleScreenshotPath }
 }
 
+async function captureWorkspaceCommandCenterEvidence(client, screenshotPath) {
+  await waitForExpression(
+    client,
+    "document.querySelector('.workspace-identity')?.textContent?.includes('Packaged CLI E2E') && document.querySelector('.topbar__activity')?.getAttribute('aria-label')?.includes('已完成')",
+  )
+  await evaluate(
+    client,
+    `(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'k',
+        metaKey: true,
+        bubbles: true
+      }))
+      return true
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    "document.querySelector('[role=dialog] h2')?.textContent === '全局搜索与操作'",
+  )
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector('.command-palette input[type=search]')
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, 'M12 Hybrid')
+      input?.dispatchEvent(new Event('input', { bubbles: true }))
+      input?.focus()
+      return Boolean(input)
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    "document.querySelector('[role=listbox]')?.textContent?.includes('M12 Hybrid 本地验证')",
+  )
+  const state = await evaluate(
+    client,
+    `({
+      workspace: document.querySelector('.workspace-identity')?.textContent?.trim(),
+      activity: document.querySelector('.topbar__activity')?.getAttribute('aria-label'),
+      result: document.querySelector('[role=option][aria-selected=true]')?.textContent?.trim(),
+      activeElement: document.activeElement?.getAttribute('type')
+    })`,
+  )
+  if (
+    !state.workspace?.includes('Packaged CLI E2E') ||
+    !state.activity?.includes('已完成') ||
+    !state.result?.includes('M12 Hybrid 本地验证') ||
+    state.activeElement !== 'search'
+  ) {
+    throw new Error(`工作区命令中心状态不完整：${JSON.stringify(state)}`)
+  }
+  const screenshot = await client.send('Page.captureScreenshot', { format: 'png' })
+  const extension = path.extname(screenshotPath)
+  const commandCenterScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-command-center${extension}`
+  await writeFile(commandCenterScreenshotPath, Buffer.from(screenshot.data, 'base64'))
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector('.command-palette input[type=search]')
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      return Boolean(input)
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    "!document.querySelector('.command-palette') && document.body.innerText.includes('M12 Hybrid 本地验证')",
+  )
+  return { commandCenterScreenshotPath, state }
+}
+
 async function captureRunHistoryEvidence(client, screenshotPath) {
   await evaluate(
     client,
@@ -812,7 +883,7 @@ export async function runPackagedAppE2e(options = {}) {
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 已就绪')")
+    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 就绪')")
 
     await evaluate(
       client,
@@ -917,7 +988,7 @@ export async function runPackagedAppE2e(options = {}) {
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 已就绪')")
+    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 就绪')")
     await evaluate(
       client,
       `(() => {
@@ -992,6 +1063,10 @@ export async function runPackagedAppE2e(options = {}) {
     const screenshotExtension = path.extname(screenshotPath)
     const runtimeScreenshotPath = `${screenshotPath.slice(0, -screenshotExtension.length)}-runtime${screenshotExtension}`
     await writeFile(runtimeScreenshotPath, Buffer.from(runtimeScreenshot.data, 'base64'))
+    const commandCenterEvidence = await captureWorkspaceCommandCenterEvidence(
+      client,
+      screenshotPath,
+    )
 
     await evaluate(
       client,
@@ -2010,6 +2085,7 @@ export async function runPackagedAppE2e(options = {}) {
       dataLocationsScreenshotPath,
       sourceDiscoveryIdleScreenshotPath: sourceDiscoveryEvidence.idleScreenshotPath,
       sourceDiscoveryErrorScreenshotPath: sourceDiscoveryEvidence.errorScreenshotPath,
+      commandCenterScreenshotPath: commandCenterEvidence.commandCenterScreenshotPath,
       keychainScreenshotPath,
       runtimeScreenshotPath,
       runHistoryScreenshotPath,
@@ -2035,6 +2111,7 @@ export async function runPackagedAppE2e(options = {}) {
       remediationCopy,
       demoFeedbackLayout,
       sourceDiscoveryFailureCopy: sourceDiscoveryEvidence.failureCopy,
+      commandCenterState: commandCenterEvidence.state,
       lifecycleErrorCopy,
       runHistoryFailureCopy,
       experimentMatrixState: experimentEvidence.state,
@@ -2058,6 +2135,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`DATA_LOCATIONS_SCREENSHOT ${result.dataLocationsScreenshotPath}`)
       console.log(`SOURCE_DISCOVERY_IDLE_SCREENSHOT ${result.sourceDiscoveryIdleScreenshotPath}`)
       console.log(`SOURCE_DISCOVERY_ERROR_SCREENSHOT ${result.sourceDiscoveryErrorScreenshotPath}`)
+      console.log(`COMMAND_CENTER_SCREENSHOT ${result.commandCenterScreenshotPath}`)
       console.log(`KEYCHAIN_SCREENSHOT ${result.keychainScreenshotPath}`)
       console.log(`RUNTIME_SCREENSHOT ${result.runtimeScreenshotPath}`)
       console.log(`RUN_HISTORY_SCREENSHOT ${result.runHistoryScreenshotPath}`)
@@ -2087,6 +2165,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log('CHINESE_SETTINGS VERIFIED')
       console.log('DATA_LOCATION_BOUNDARIES VERIFIED')
       console.log('SOURCE_DISCOVERY_STATE_COVERAGE VERIFIED')
+      console.log('WORKSPACE_COMMAND_CENTER VERIFIED')
       console.log('PERSISTED_UI_PREFERENCES VERIFIED')
       console.log('TRUSTED_HYBRID_RUNTIME VERIFIED')
       console.log('RUN_HISTORY_OBSERVABILITY VERIFIED')

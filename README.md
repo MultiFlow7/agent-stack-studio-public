@@ -36,7 +36,7 @@ Agent Stack Studio 是一个仅面向 macOS 的本地桌面工具，用于识别
 - [本地产品完整性矩阵](./docs/local-completeness-matrix.md)
 - [正式分发架构就绪矩阵](./docs/release-readiness-matrix.md)
 
-当前仓库已完成 M0 至 M25 的可运行纵向切片。M25 完整覆盖 GitHub 公开来源发现的空闲、加载、成功、无结果、取消、离线、15 秒超时、限流和 Provider 错误；每类失败显示与事实一致的恢复动作，Preload 统一移除 Electron IPC 内部前缀。打包证据不依赖外网，只验证公开元数据安全边界和本地输入拒绝。M24 的实验矩阵、M23 的 Run 历史、M22 的 Adapter/Fork 任务与 Component 生命周期、M21 的项目/包 v2 和版本化 Workflow DAG 继续保留。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
+当前仓库已实现 M0 至 M26 的可运行纵向切片。M26 用只读聚合提供真实工作区/revision、Run 状态、`⌘K` 本地全局搜索、实体直达和白名单应用操作，并集中 Agent、Stack、Run、Experiment 与发布状态词汇；它不新增持久化事实或执行权限。M25 完整覆盖 GitHub 公开来源发现的空闲、加载、成功、无结果、取消、离线、15 秒超时、限流和 Provider 错误。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
 
 ## 本地开发
 

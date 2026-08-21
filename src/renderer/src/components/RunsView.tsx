@@ -17,6 +17,7 @@ import { executionModeLabels, runStatusLabels } from '../copy'
 
 interface RunsViewProps {
   agentId?: string
+  runId?: string
 }
 
 const activeStatuses = new Set<RunRecord['status']>(['queued', 'starting', 'running', 'cancelling'])
@@ -59,7 +60,7 @@ function executionBinding(detail: RunHistoryDetail): string {
   }
 }
 
-export function RunsView({ agentId }: RunsViewProps) {
+export function RunsView({ agentId, runId }: RunsViewProps) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState(agentId ?? '')
@@ -101,6 +102,12 @@ export function RunsView({ agentId }: RunsViewProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!runId) return
+    setSelectedRunId(runId)
+    void loadDetail(runId)
+  }, [loadDetail, runId])
 
   const hasActiveRun = useMemo(() => runs.some((run) => activeStatuses.has(run.status)), [runs])
 

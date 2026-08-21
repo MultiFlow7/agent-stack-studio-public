@@ -141,16 +141,38 @@ function installApi(
     },
     maintenance: {} as StudioApi['maintenance'],
     preferences: {} as StudioApi['preferences'],
+    commandCenter: {} as StudioApi['commandCenter'],
     discovery: {} as StudioApi['discovery'],
     menu: {
       onCreateAgent: vi.fn(() => () => undefined),
       onOpenSettings: vi.fn(() => () => undefined),
     },
   }
-  return { start, cancel }
+  return { start, get, cancel }
 }
 
 describe('RunsView', () => {
+  it('opens a command-center Run destination directly', async () => {
+    const { manifest } = createRunFixture()
+    const succeeded: RunRecord = {
+      id: manifest.runId,
+      agentId: manifest.agentId,
+      agentVersionId: manifest.agentVersionId,
+      status: 'succeeded',
+      manifest,
+      startedAt: timestamp,
+      finishedAt: timestamp,
+      failure: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    const { get } = installApi([succeeded])
+    render(<RunsView runId={succeeded.id} />)
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith(succeeded.id))
+    expect(await screen.findByRole('heading', { name: '已完成' })).toBeVisible()
+  })
+
   it('shows a useful empty state for a local Agent', async () => {
     installApi()
     render(<RunsView agentId={fixtureAgentId} />)

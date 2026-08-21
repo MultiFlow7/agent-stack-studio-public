@@ -87,6 +87,11 @@ import {
   updateRendererPreferencesInputSchema,
 } from '../shared/preferences'
 import { projectExportResultSchema } from '../shared/agent-stack-package'
+import {
+  commandCenterSearchInputSchema,
+  commandCenterSearchResultSchema,
+  commandCenterSnapshotSchema,
+} from '../shared/command-center'
 
 async function invokeWithSanitizedError(
   channel: string,
@@ -357,6 +362,25 @@ const api: StudioApi = {
       const parsedInput = updateRendererPreferencesInputSchema.parse(input)
       const response: unknown = await ipcRenderer.invoke(ipcChannels.preferencesUpdate, parsedInput)
       return rendererPreferencesSchema.parse(response)
+    },
+  },
+  commandCenter: {
+    async snapshot() {
+      const response: unknown = await invokeWithSanitizedError(
+        ipcChannels.commandCenterSnapshot,
+        {},
+        '无法读取工作空间状态。',
+      )
+      return commandCenterSnapshotSchema.parse(response)
+    },
+    async search(input) {
+      const parsed = commandCenterSearchInputSchema.parse(input)
+      const response: unknown = await invokeWithSanitizedError(
+        ipcChannels.commandCenterSearch,
+        parsed,
+        '无法搜索本地工作空间。',
+      )
+      return commandCenterSearchResultSchema.parse(response)
     },
   },
   studioProject: {
