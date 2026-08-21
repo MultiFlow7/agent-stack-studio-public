@@ -145,3 +145,10 @@ Main 进程从 Electron `app.getPath('userData')` 解析唯一 Application Suppo
 - 包的 producer version 直接读取 `package.json#version`；包格式版本、Schema ID 和 SHA-256 策略由 compatibility manifest 固定。
 - 打包 E2E 在最终 `.app` 中完成 GUI 和包内 CLI 双向导出，复算哈希、扫描本机路径/敏感值，并输出 `SECRET_FREE_PORTABLE_PACKAGE VERIFIED`。
 - 正式签名、公证、发布渠道或更新源不改变包 Schema、Core 导出语义、IPC 空输入契约或 GUI/CLI 操作路径。
+
+## 10. 公开仓库与隐私边界
+
+- 已共享的私有里程碑历史作为基线审计记录保留，不改写、不公开；历史中的作者元数据不会进入公开仓库。
+- 公开仓库从隐私审计后的单提交快照开始，公开提交只使用 GitHub noreply 地址。私有里程碑提交与公开 CI 提交通过完全相同的 Git tree hash 关联。
+- `npm run verify:public-snapshot` 扫描 Git 已跟踪和待提交文件，拒绝常见 Provider 凭证、私钥、非 fixture 邮箱、个人 macOS/Windows/Linux 用户路径及敏感文件名；该门禁已进入 `npm run check` 和 GitHub CI。
+- M25 私有提交 `f525c4c` 与公开快照 `f2b6e62` 共享 tree `055a13a70b08eb088ae2d63558514bf7b7a8b7c8`；公开 Intel CI run `32438973147` 通过完整项目检查、打包、包验证、packaged E2E 和无凭证 dry-run。

@@ -4,6 +4,8 @@ Agent Stack Studio 是一个仅面向 macOS 的本地桌面工具，用于识别
 
 它解决的核心问题不是重新实现一套 Agent Framework，而是把 Pi、OpenClaw、LangGraph 或自研 Harness 中已经包含的能力标注出来，让用户看见哪些模块已被占用、哪些模块可以替换，并在保持控制变量不变的前提下比较其他模块。
 
+公开仓库为 [MultiFlow7/agent-stack-studio-public](https://github.com/MultiFlow7/agent-stack-studio-public)。它从通过隐私审计的 M25 快照开始；早期里程碑的私有审计历史不会复制到公开仓库。`npm run verify:public-snapshot` 会在每次完整检查中拒绝凭证、私钥、真实邮箱、个人用户路径和敏感文件名。
+
 ## 产品边界
 
 - 每位用户在自己的 Mac 上独立安装和运行。
@@ -55,6 +57,7 @@ npm run verify:mac-package # 检查包安全契约、发布哈希、元数据、
 npm run package:cli  # 构建并检查与应用同版本的 studio CLI
 npm run test:e2e:packaged # 实际启动已打包 .app 并检查中文设置页与 Renderer 边界
 npm run release:dry-run # 无凭证也运行全套检查并生成结构化分发报告
+npm run verify:public-snapshot # 检查待公开快照中的凭证与个人信息
 ```
 
 工程边界位于 `src/renderer`、`src/preload`、`src/main`、`src/runtime` 和 `src/shared`。Renderer 只能访问 Preload 暴露且经 schema 校验的白名单 API；SQLite、工作区、原生目录选择器和 Runtime 子进程均由 Main 管理。每次正式 Run 都创建全新的 Runtime 子进程，Cordis 类型不会进入领域模型或 UI。
