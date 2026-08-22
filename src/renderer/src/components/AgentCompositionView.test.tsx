@@ -25,17 +25,26 @@ describe('AgentCompositionView compatibility actions', () => {
       project: { revision: 11 },
       validation: {
         status: 'blocked',
-        issues: [],
+        issues: [
+          {
+            severity: 'error',
+            code: 'COMPATIBILITY_UNKNOWN',
+            message: '重复的兼容问题投影不应再次显示。',
+            componentId,
+            capability: null,
+            suggestedActions: ['前往组件处置。'],
+          },
+        ],
         remediationTasks: [],
         assessments: [
           {
             componentId,
-            status: 'unchecked',
-            explanation: '当前机器证据不足。',
+            status: 'evidence-required',
+            explanation: '静态检查完成，仍缺能力替换边界。',
             blockers: [],
             evidence: [],
-            assessedAt: '2026-08-22T12:00:00.000Z',
-            method: 'static-descriptor-v1',
+            checkedAt: '2026-08-22T12:00:00.000Z',
+            method: 'static-descriptor-v2',
             suggestedActions: [
               {
                 id: 'recheck-static',
@@ -60,6 +69,12 @@ describe('AgentCompositionView compatibility actions', () => {
     } as unknown as StudioApi
     const user = userEvent.setup()
     render(<AgentCompositionView agentId={agentId} onChanged={vi.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: '兼容处置尚未完成' })).toBeVisible()
+    const assessmentLabel = screen.getByText('静态检查完成，待补充证据')
+    expect(assessmentLabel.closest('li')).toHaveClass('project-validation__item--warning')
+    expect(screen.getByText(/安全静态检查/)).toBeVisible()
+    expect(screen.queryByText('重复的兼容问题投影不应再次显示。')).not.toBeInTheDocument()
 
     await user.click(await screen.findByRole('button', { name: '重新静态检查' }))
     expect(recheckComponent).toHaveBeenCalledWith({ componentId, expectedRevision: 11 })

@@ -51,7 +51,7 @@ export const validationLabels: Record<ComponentDescriptor['compatibility']['vali
 
 export const compatibilityAssessmentLabels = {
   unchecked: '未检查',
-  'evidence-required': '静态检查完成，机器证据不足',
+  'evidence-required': '静态检查完成，待补充证据',
   'static-passed': '静态通过',
   'configuration-required': '需配置',
   'adapter-required': '需 Adapter',

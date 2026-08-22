@@ -585,7 +585,15 @@
   font-size: 11px;
 }
 
-.project-validation li strong {
+.project-validation__item--success > strong {
+  color: #2f6534;
+}
+
+.project-validation__item--warning > strong {
+  color: #75550d;
+}
+
+.project-validation__item--error > strong {
   color: var(--danger);
 }
 

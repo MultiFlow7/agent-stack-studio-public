@@ -27,6 +27,18 @@ const validationIssueLabels: Record<string, string> = {
   SOURCE_UNAVAILABLE: '来源不可用',
 }
 
+const assessmentIssueCodes = new Set([
+  'COMPATIBILITY_UNKNOWN',
+  'COMPONENT_BLOCKED',
+  'ADAPTER_UNVERIFIED',
+])
+
+function assessmentTone(status: string): 'success' | 'warning' | 'error' {
+  if (status === 'runtime-verified' || status === 'static-passed') return 'success'
+  if (status === 'incompatible') return 'error'
+  return 'warning'
+}
+
 export function AgentCompositionView({ agentId, onChanged }: AgentCompositionViewProps) {
   const [state, setState] = useState<StudioProjectState>()
   const [error, setError] = useState<string>()
@@ -100,6 +112,17 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
     )
   }
   const { project, validation } = state
+  const assessedComponentIds = new Set(
+    validation?.assessments?.map(({ componentId }) => componentId) ?? [],
+  )
+  const visibleIssues =
+    validation?.issues.filter(
+      ({ code, componentId }) =>
+        !componentId || !assessedComponentIds.has(componentId) || !assessmentIssueCodes.has(code),
+    ) ?? []
+  const hasHardBlock =
+    validation?.assessments?.some(({ status }) => status === 'incompatible') ||
+    visibleIssues.some(({ severity }) => severity === 'error')
   const handleCompatibilityAction = async (
     componentId: string,
     action: CompatibilityAction,
@@ -186,20 +209,39 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
             <WarningCircle size={22} weight="fill" />
           )}
           <div>
-            <h2>兼容性与冲突检查{validation?.status === 'ready' ? '通过' : '已阻断'}</h2>
+            <h2>
+              {validation?.status === 'ready'
+                ? '兼容性与冲突检查通过'
+                : hasHardBlock
+                  ? '兼容性与冲突检查已阻断'
+                  : '兼容处置尚未完成'}
+            </h2>
             <p>
               {validation?.status === 'ready'
                 ? '可以冻结 Agent Version。'
-                : '按证据与建议动作处理后再冻结。'}
+                : hasHardBlock
+                  ? '先处理下列错误，再重新检查。'
+                  : '静态检查已经执行；完成下列证据与处置步骤后才能冻结。'}
             </p>
           </div>
         </header>
         {validation?.assessments?.length ? (
           <ul>
             {validation.assessments.map((assessment) => (
-              <li key={assessment.componentId}>
+              <li
+                className={`project-validation__item project-validation__item--${assessmentTone(assessment.status)}`}
+                key={assessment.componentId}
+              >
                 <strong>{compatibilityAssessmentLabels[assessment.status]}</strong>
                 <span>{assessment.explanation}</span>
+                <small>
+                  {new Date(assessment.checkedAt).toLocaleString('zh-CN')} ·{' '}
+                  {assessment.method === 'trusted-runtime-v1'
+                    ? '受信运行验证'
+                    : assessment.method === 'deterministic-contract-test-v1'
+                      ? '确定性契约测试'
+                      : '安全静态检查'}
+                </small>
                 <div className="assessment-inline-actions">
                   {assessment.suggestedActions.map((action) => {
                     const actionKey = `${assessment.componentId}:${action.action}`
@@ -228,10 +270,13 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
             ))}
           </ul>
         ) : null}
-        {validation?.issues.length ? (
+        {visibleIssues.length ? (
           <ul>
-            {validation.issues.map((issue, index) => (
-              <li key={`${issue.code}-${index}`}>
+            {visibleIssues.map((issue, index) => (
+              <li
+                className={`project-validation__item project-validation__item--${issue.severity}`}
+                key={`${issue.code}-${index}`}
+              >
                 <strong>{validationIssueLabels[issue.code] ?? '需处理的组合问题'}</strong>
                 <span>{issue.message}</span>
                 <div className="assessment-inline-actions">

@@ -297,7 +297,7 @@ describe('ComponentCatalogView', () => {
 
     finishRecheck?.()
     expect(await screen.findByText('静态检查已完成，未执行组件代码。')).toBeVisible()
-    expect(screen.getByText('静态检查完成，机器证据不足')).toBeVisible()
+    expect(screen.getByText('静态检查完成，待补充证据')).toBeVisible()
   })
 
   it('edits the complete capability contract with schema validation and cancel zero-write', async () => {
