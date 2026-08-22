@@ -2580,24 +2580,26 @@ export async function runPackagedAppE2e(options = {}) {
     await evaluate(
       client,
       `(() => {
-        const button = [...document.querySelectorAll('.compatibility-actions button')].find(
-          (element) => element.textContent?.trim() === '进入受信最小运行验证'
+        const summary = [...document.querySelectorAll('.compatibility-actions summary')].find(
+          (element) => element.textContent?.trim() === '注册精确白名单 Adapter'
         )
-        button?.focus()
-        button?.click()
-        return Boolean(button)
+        summary?.focus()
+        summary?.click()
+        return Boolean(summary)
       })()`,
     )
     await waitForExpression(
       client,
-      "document.querySelector('.detail-feedback--error')?.textContent?.includes('精确白名单')",
+      "document.body.innerText.includes('当前入口不在 Studio 受信白名单') && document.body.innerText.includes('未知路径与第三方脚本不会获得运行权限')",
     )
     await evaluate(
       client,
       `(() => {
-        const error = document.querySelector('.detail-feedback--error')
-        error?.scrollIntoView({ block: 'start' })
-        return Boolean(error)
+        const details = [...document.querySelectorAll('.compatibility-actions details')].find(
+          (element) => element.textContent?.includes('注册精确白名单 Adapter')
+        )
+        details?.scrollIntoView({ block: 'start' })
+        return Boolean(details)
       })()`,
     )
     const compatibilityFailureScreenshot = await client.send('Page.captureScreenshot', {

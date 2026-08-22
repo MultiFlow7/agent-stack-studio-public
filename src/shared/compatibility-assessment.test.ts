@@ -95,6 +95,41 @@ describe('compatibility assessment', () => {
     expect(result.suggestedActions.map(({ action }) => action)).toContain('recheck-static')
   })
 
+  it('does not offer contract or runtime buttons before an Adapter is actually available and trusted', () => {
+    const missingAdapter = assess({
+      ...base,
+      runtimeAdapter: null,
+      configSchema: null,
+      compatibility: {
+        level: 'adapter',
+        validation: 'declared',
+        detail: '等待 Adapter。',
+      },
+    })
+    expect(missingAdapter.suggestedActions.map(({ action }) => action)).toEqual([
+      'prepare-trusted-adapter',
+    ])
+    expect(missingAdapter.suggestedActions[0]).toMatchObject({
+      presentation: 'external-step',
+      enabled: true,
+    })
+
+    const untrustedAdapter = assess({
+      ...base,
+      runtimeAdapter: './third-party.js',
+      configSchema: null,
+      compatibility: {
+        level: 'adapter',
+        validation: 'contract-tested',
+        detail: '契约通过，入口未受信。',
+      },
+    })
+    expect(untrustedAdapter.suggestedActions.map(({ action }) => action)).toEqual([
+      'prepare-trusted-adapter',
+    ])
+    expect(untrustedAdapter.suggestedActions[0]?.label).toContain('白名单')
+  })
+
   it('maps legacy user-confirmed evidence to a preserved human decision without technical uplift', () => {
     const result = assess({
       ...base,

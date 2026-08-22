@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { ComponentDescriptor } from './component'
+import { isTrustedRuntimeAdapterRef } from './trusted-execution'
 
 export const compatibilityAssessmentStatusSchema = z.enum([
   'unchecked',
@@ -41,6 +42,7 @@ export const compatibilityActionSchema = z
       'resolve-owner',
       'run-contract-test',
       'run-trusted-validation',
+      'prepare-trusted-adapter',
       'review-incompatible',
     ]),
     presentation: z.enum(['button', 'form', 'external-step']),
@@ -275,6 +277,19 @@ export function assessComponentCompatibility(input: {
       descriptor.compatibility.level === 'adapter'
         ? '已选择 Adapter 处置方向，仍需契约测试与受信最小运行验证。'
         : '已选择 Fork 处置方向，仍需可审查补丁、契约测试与受信运行验证。'
+    if (!descriptor.runtimeAdapter) {
+      suggestedActions.push(
+        makeAction(input.componentId, {
+          action: 'prepare-trusted-adapter',
+          presentation: 'external-step',
+          label: '准备并注册受信 Adapter',
+          description: '当前没有运行入口，不能执行 Adapter 契约测试或运行验证。',
+          enabled: true,
+          externalStep:
+            '在隔离分支实现并测试稳定的 Adapter Contract；完成代码审查后，将固定的 studio:// Runtime Adapter 引用加入 Studio 精确白名单并重新构建。不要填写本地脚本路径，也不要直接运行上游组件代码。',
+        }),
+      )
+    }
   } else if (descriptor.compatibility.level === 'configuration' || descriptor.configSchema) {
     status = 'configuration-required'
     explanation = '静态契约可组合，还需完成配置、权限与 Keychain 引用决策。'
@@ -300,7 +315,9 @@ export function assessComponentCompatibility(input: {
     status !== 'unchecked' &&
     status !== 'evidence-required' &&
     status !== 'incompatible' &&
-    descriptor.compatibility.validation === 'declared'
+    descriptor.compatibility.validation === 'declared' &&
+    (!['adapter', 'fork'].includes(descriptor.compatibility.level) ||
+      Boolean(descriptor.runtimeAdapter))
   ) {
     suggestedActions.push(
       makeAction(input.componentId, {
@@ -317,14 +334,26 @@ export function assessComponentCompatibility(input: {
     status !== 'incompatible' &&
     descriptor.compatibility.validation === 'contract-tested'
   ) {
+    const trustedAdapter = isTrustedRuntimeAdapterRef(descriptor.runtimeAdapter)
     suggestedActions.push(
-      makeAction(input.componentId, {
-        action: 'run-trusted-validation',
-        presentation: 'button',
-        label: '进入受信最小运行验证',
-        description: '仅精确白名单 Adapter 可进入全新 Runtime 子进程，覆盖启动、调用、取消与清理。',
-        enabled: Boolean(descriptor.runtimeAdapter),
-      }),
+      trustedAdapter
+        ? makeAction(input.componentId, {
+            action: 'run-trusted-validation',
+            presentation: 'button',
+            label: '进入受信最小运行验证',
+            description:
+              '仅精确白名单 Adapter 可进入全新 Runtime 子进程，覆盖启动、调用、取消与清理。',
+            enabled: true,
+          })
+        : makeAction(input.componentId, {
+            action: 'prepare-trusted-adapter',
+            presentation: 'external-step',
+            label: '注册精确白名单 Adapter',
+            description: '契约测试已完成，但当前入口不在 Studio 受信白名单中。',
+            enabled: true,
+            externalStep:
+              '完成 Adapter 实现、隔离测试和代码审查后，将固定的 studio:// Runtime Adapter 引用加入 Studio 精确白名单并重新构建；未知路径与第三方脚本不会获得运行权限。',
+          }),
     )
   }
 
