@@ -7,6 +7,7 @@ import type { RuntimeExecutionGateway } from '../runtime/runtime-controller'
 import { AppError } from '../../shared/errors'
 import type { RunDetail, RunRecord, StartRunInput } from '../../shared/run'
 import type { ArtifactService } from './artifact-service'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
 
 const terminalStatuses = new Set<RunRecord['status']>([
   'succeeded',
@@ -53,28 +54,33 @@ export class RunService {
     if (stack.compilation.status !== 'ready') {
       throw new AppError('VALIDATION_FAILED', 'Stack 预检未通过，不能启动 Run。')
     }
-    if (version.snapshot.stack.revision !== stack.revision) {
+    const frozenRevision = isProjectAgentVersionReference(version.snapshot)
+      ? version.snapshot.projectRevision + 1
+      : version.snapshot.stack.revision
+    if (frozenRevision !== stack.revision) {
       throw new AppError(
         'VALIDATION_FAILED',
         '当前 Stack 草稿在最新版本之后已变更，请先创建新版本。',
       )
     }
 
-    const versionComponents = new Map(
-      version.snapshot.stack.components.map((component) => [component.componentId, component]),
-    )
-    if (
-      versionComponents.size !== stack.components.length ||
-      stack.components.some((component) => {
-        const snapshot = versionComponents.get(component.id)
-        return (
-          !snapshot ||
-          snapshot.contractId !== component.descriptor.id ||
-          snapshot.version !== component.descriptor.version
-        )
-      })
-    ) {
-      throw new AppError('VALIDATION_FAILED', '版本中的组件快照与当前 Stack 不一致。')
+    if (!isProjectAgentVersionReference(version.snapshot)) {
+      const versionComponents = new Map(
+        version.snapshot.stack.components.map((component) => [component.componentId, component]),
+      )
+      if (
+        versionComponents.size !== stack.components.length ||
+        stack.components.some((component) => {
+          const snapshot = versionComponents.get(component.id)
+          return (
+            !snapshot ||
+            snapshot.contractId !== component.descriptor.id ||
+            snapshot.version !== component.descriptor.version
+          )
+        })
+      ) {
+        throw new AppError('VALIDATION_FAILED', '版本中的组件快照与当前 Stack 不一致。')
+      }
     }
 
     const createdAt = new Date().toISOString()
@@ -111,6 +117,7 @@ export class RunService {
   cancel(runId: string): RunDetail {
     const run = this.#repository.get(runId)
     if (terminalStatuses.has(run.status)) return this.#repository.getDetail(runId)
+    if (run.status === 'cancelling') return this.#repository.getDetail(runId)
     this.#repository.updateStatus(runId, 'cancelling')
     this.#repository.addEvent(runId, {
       type: 'cancel-requested',
@@ -187,10 +194,10 @@ export class RunService {
           details: {},
         })
       }
-    } catch (error) {
+    } catch {
       const current = this.#repository.get(runId)
       if (terminalStatuses.has(current.status)) return
-      const message = error instanceof Error ? error.message : 'Runtime 执行失败。'
+      const message = 'Runtime 执行失败，未保存内部错误细节。'
       this.#repository.updateStatus(runId, 'failed', {
         finishedAt: new Date().toISOString(),
         failure: { code: 'RUNTIME_FAILED', message },

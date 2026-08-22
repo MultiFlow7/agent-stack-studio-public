@@ -52,3 +52,13 @@ Historical Run detail is a read-only evidence document. Failure stays prominent,
 ## Experiment matrix pattern
 
 Experiment results remain one continuous evidence surface: progress and the immutable reproduction definition precede the matrix, while filters narrow the same saved cells without changing the experiment. “Terminal” is kept distinct from “succeeded”; failures, cancellations and Drift blocks share a clearly labelled attention filter, and partial completion always keeps the planned denominator visible. The comparison table states its first Prompt/seed baseline and uses a dash when a cancelled or failed combination has no meaningful duration, avoiding synthetic relative metrics.
+
+## Workspace command-center pattern
+
+The topbar is a compact factual instrument strip: the current project and revision anchor the left, local search stays visually central, and Run state plus one create action occupy the right. The command palette is one continuous list rather than a grid of shortcuts. Category labels remain quiet, entity identity stays dominant, and keyboard selection is always visible. Summary errors degrade only the affected topbar control; they never replace the active workspace view.
+
+## Agent-first composition pattern
+
+Primary navigation follows user tasks: Agent, Component Library, Discovery, Experiments, Runs and Settings. The current project is a compact global context control in the top bar, not a primary destination. Its secondary Project Settings view contains path, revision, integrity/recovery, import/export and CLI discovery only.
+
+The Agent Stack tab is one continuous composition surface: component picker, ordered membership, capability Owner choices, shared compatibility evidence, blockers and suggested actions, then structured Workflow editing. The freeze action says “冻结 Agent Version” and remains visually tied to validation. Users never edit Descriptor JSON. Advanced identifiers and evidence expand progressively; default copy states capability, impact and next action.

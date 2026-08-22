@@ -19,6 +19,7 @@ import {
   MacOsKeychainAdapter,
   type KeychainAdapter,
 } from '../adapters/keychain/macos-keychain-adapter'
+import { redactSensitiveText, sanitizeDiagnosticValue } from '../shared/sensitive-data'
 
 export interface ParsedArguments {
   positionals: string[]
@@ -48,6 +49,7 @@ const exitCodes: Record<string, number> = {
   IO_FAILED: 14,
   DISCOVERY_QUERY_INVALID: 15,
   DISCOVERY_NETWORK_FAILED: 16,
+  DISCOVERY_TIMEOUT: 16,
   DISCOVERY_RATE_LIMITED: 17,
   DISCOVERY_PROVIDER_FAILED: 18,
   DISCOVERY_PROVIDER_UNAVAILABLE: 19,
@@ -663,16 +665,21 @@ async function main(): Promise<void> {
     const known =
       error instanceof StudioCoreError
         ? error
-        : new StudioCoreError('UNEXPECTED', error instanceof Error ? error.message : '未知错误。')
+        : new StudioCoreError('UNEXPECTED', '命令执行失败，未输出内部错误细节。')
+    const message = redactSensitiveText(known.message)
+    const suggestedActions = known.suggestedActions.map((action) => ({
+      ...(action.command ? { command: redactSensitiveText(action.command) } : {}),
+      description: redactSensitiveText(action.description),
+    }))
     const payload = {
       ok: false,
-      error: { code: known.code, message: known.message, details: known.details },
-      suggestedActions: known.suggestedActions,
+      error: { code: known.code, message, details: sanitizeDiagnosticValue(known.details) },
+      suggestedActions,
     }
     if (json) console.error(JSON.stringify(payload))
     else {
-      console.error(`${known.code}: ${known.message}`)
-      for (const action of known.suggestedActions) console.error(`建议：${action.description}`)
+      console.error(`${known.code}: ${message}`)
+      for (const action of suggestedActions) console.error(`建议：${action.description}`)
     }
     process.exitCode = exitCodes[known.code] ?? exitCodes.UNEXPECTED
   } finally {

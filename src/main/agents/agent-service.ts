@@ -10,50 +10,96 @@ import {
   type DuplicateAgentInput,
   type UpdateAgentInput,
 } from '../../shared/agent'
-import type { AgentDetail, AgentVersion } from '../../shared/agent-detail'
+import type { AgentDetail, AgentVersion, MaterializedAgentVersion } from '../../shared/agent-detail'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
 import type { ImportScan } from '../../shared/import'
 import { AppError } from '../../shared/errors'
 import type { AgentRepository } from '../persistence/agent-repository'
 import type { WorkspaceService } from '../workspace/workspace-service'
+import type { StudioProjectService } from '../projects/studio-project-service'
 
 export class AgentService {
   readonly #repository: AgentRepository
   readonly #workspaces: WorkspaceService
+  #projects: StudioProjectService | null = null
 
   constructor(repository: AgentRepository, workspaces: WorkspaceService) {
     this.#repository = repository
     this.#workspaces = workspaces
   }
 
+  connectProject(projects: StudioProjectService): void {
+    this.#projects = projects
+  }
+
   async create(input: CreateAgentInput): Promise<Agent> {
     const id = randomUUID()
     const workspacePath = await this.#workspaces.create(id)
-    return this.#repository.create(input, {
-      id,
-      location: { workspacePath, sourceKind: 'blank', sourcePath: null },
-    })
+    try {
+      if (this.#projects) {
+        const state = await this.#projects.init(workspacePath, input, id)
+        if (!state.localAgentId) throw new Error('未能建立 Agent 项目引用。')
+        return this.#repository.getDetail(state.localAgentId).agent
+      }
+      return this.#repository.create(input, {
+        id,
+        location: { workspacePath, sourceKind: 'blank', sourcePath: null },
+      })
+    } catch (error) {
+      await this.#workspaces.remove(id).catch(() => undefined)
+      throw error
+    }
   }
 
   async import(scan: ImportScan): Promise<AgentDetail> {
     const id = randomUUID()
     const workspacePath = await this.#workspaces.create(id)
-    const agent = this.#repository.create(
-      {
-        name: scan.suggestedName,
-        description: `通过静态检查从 ${scan.projectType} 项目导入。`,
-        executionMode: 'external-harness',
-      },
-      {
-        id,
-        location: {
+    try {
+      if (this.#projects) {
+        let state = await this.#projects.init(
           workspacePath,
-          sourceKind: 'local-import',
-          sourcePath: scan.sourcePath,
+          {
+            name: scan.suggestedName,
+            description: `通过静态检查从 ${scan.projectType} 项目导入。`,
+            executionMode: 'external-harness',
+          },
+          id,
+        )
+        state = await this.#projects.importComponent(scan.sourcePath, state.project!.revision)
+        const imported = state.project?.components.at(-1)
+        if (!imported) throw new Error('导入项目未生成组件静态记录。')
+        await this.#projects.stackAdd(imported.id, state.project!.revision)
+        return this.get(id)
+      }
+      const agent = this.#repository.create(
+        {
+          name: scan.suggestedName,
+          description: `通过静态检查从 ${scan.projectType} 项目导入。`,
+          executionMode: 'external-harness',
         },
-      },
-    )
-    this.#repository.createVersion(agent.id)
-    return this.#repository.getDetail(agent.id)
+        {
+          id,
+          location: {
+            workspacePath,
+            sourceKind: 'local-import',
+            sourcePath: scan.sourcePath,
+          },
+        },
+      )
+      this.#repository.createVersion(agent.id)
+      return this.#repository.getDetail(agent.id)
+    } catch (error) {
+      if (this.#repository.list({ scope: 'active' }).some((agent) => agent.id === id)) {
+        try {
+          this.#repository.archive(id)
+          this.#repository.delete(id)
+        } catch {
+          // Preserve the original import failure; repository cleanup is best effort.
+        }
+      }
+      await this.#workspaces.remove(id).catch(() => undefined)
+      throw error
+    }
   }
 
   list(input: AgentListInput = { scope: 'active' }): Agent[] {
@@ -61,21 +107,59 @@ export class AgentService {
   }
 
   get(agentId: string): AgentDetail {
-    return this.#repository.getDetail(agentId)
+    const detail = this.#repository.getDetail(agentId)
+    const state = this.#projects?.activeComposition(agentId)
+    if (!state?.project) return detail
+    return {
+      ...detail,
+      agent: {
+        ...detail.agent,
+        name: state.project.name,
+        description: state.project.description,
+        executionMode: state.project.stack.executionMode,
+        updatedAt: state.project.updatedAt,
+      },
+      draft: {
+        agentId,
+        executionMode: state.project.stack.executionMode,
+        revision: state.project.revision + 1,
+        updatedAt: state.project.updatedAt,
+      },
+    }
   }
 
-  update(input: UpdateAgentInput): AgentDetail {
+  update(input: UpdateAgentInput): AgentDetail | Promise<AgentDetail> {
+    const state = this.#projects?.activeComposition(input.id)
+    if (state?.project && this.#projects) {
+      return this.#projects
+        .updateMetadata({
+          name: input.name,
+          description: input.description,
+          executionMode: input.executionMode,
+          expectedRevision: state.project.revision,
+        })
+        .then(() => this.get(input.id))
+    }
     return this.#repository.update(input)
   }
 
-  createVersion(agentId: string): AgentVersion {
+  createVersion(agentId: string): AgentVersion | Promise<AgentVersion> {
     this.getActive(agentId)
+    if (this.#projects?.activeComposition(agentId)) {
+      return this.#projects.freezeForAgent(agentId)
+    }
     return this.#repository.createVersion(agentId)
   }
 
   async duplicate(input: DuplicateAgentInput): Promise<AgentDetail> {
     const parsed = duplicateAgentInputSchema.parse(input)
     const source = this.#repository.getDetail(parsed.id)
+    if (this.#repository.projectLink(parsed.id)) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        '项目 Agent 不能复制为 SQLite Stack。请从项目设置导出可移植包，再以新项目导入。',
+      )
+    }
     const id = randomUUID()
     const workspacePath = await this.#workspaces.create(id)
     const defaultName = `${source.agent.name} 副本`.slice(0, 80)
@@ -120,5 +204,13 @@ export class AgentService {
       )
     }
     return detail
+  }
+
+  materializeVersion(agentId: string, version: AgentVersion): MaterializedAgentVersion {
+    if (!isProjectAgentVersionReference(version.snapshot)) {
+      return { ...version, snapshot: version.snapshot }
+    }
+    if (!this.#projects) throw new AppError('VALIDATION_FAILED', '当前项目不可用。')
+    return this.#projects.materializeVersion(agentId, version)
   }
 }

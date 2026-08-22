@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { executionModeSchema } from './agent'
 import { componentDescriptorSchema, capabilityIdSchema } from './component'
 import { projectValidationSchema, studioProjectSchema } from '../core/project-model'
 import { projectIntegrityReportSchema } from '../core/project-integrity'
@@ -6,6 +7,7 @@ import { projectIntegrityReportSchema } from '../core/project-integrity'
 export const studioProjectStateSchema = z
   .object({
     projectPath: z.string().min(1).nullable(),
+    localAgentId: z.uuid().nullable().default(null),
     project: studioProjectSchema.nullable(),
     validation: projectValidationSchema.nullable(),
     integrity: projectIntegrityReportSchema.nullable().default(null),
@@ -17,6 +19,13 @@ export const studioProjectStateSchema = z
 
 export const projectMutationInputSchema = z
   .object({ expectedRevision: z.number().int().nonnegative() })
+  .strict()
+export const projectMetadataInputSchema = projectMutationInputSchema
+  .extend({
+    name: z.string().trim().min(1).max(80),
+    description: z.string().max(500),
+    executionMode: executionModeSchema,
+  })
   .strict()
 export const projectComponentInputSchema = projectMutationInputSchema.extend({
   componentId: z.uuid(),
@@ -102,6 +111,7 @@ export const projectWorkflowFreezeInputSchema = z
   .strict()
 
 export type StudioProjectState = z.infer<typeof studioProjectStateSchema>
+export type ProjectMetadataInput = z.infer<typeof projectMetadataInputSchema>
 export type ProjectComponentInput = z.infer<typeof projectComponentInputSchema>
 export type ProjectOwnerInput = z.infer<typeof projectOwnerInputSchema>
 export type ProjectDescriptorInput = z.infer<typeof projectDescriptorInputSchema>

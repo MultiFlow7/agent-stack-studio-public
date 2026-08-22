@@ -1,25 +1,41 @@
 import { z } from 'zod'
 
-export const backupFileEntrySchema = z.object({
-  relativePath: z.string().min(1),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  sizeBytes: z.number().int().nonnegative(),
-})
-
-export const backupManifestSchema = z.object({
-  formatVersion: z.literal(1),
-  applicationId: z.literal('studio.agentstack.desktop'),
-  applicationVersion: z.string().min(1),
-  createdAt: z.string().datetime(),
-  database: z.object({
-    schemaVersion: z.number().int().positive(),
+export const backupFileEntrySchema = z
+  .object({
+    relativePath: z
+      .string()
+      .min(1)
+      .max(4_096)
+      .refine(
+        (value) =>
+          !value.startsWith('/') &&
+          !value.includes('\\') &&
+          !value.split('/').some((segment) => segment === '..'),
+        '备份文件路径必须保持在备份根目录内。',
+      ),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     sizeBytes: z.number().int().nonnegative(),
-  }),
-  files: z.array(backupFileEntrySchema),
-  excluded: z.array(z.enum(['keychain-secret-values', 'logs', 'symbolic-links'])),
-  excludedSymbolicLinks: z.number().int().nonnegative(),
-})
+  })
+  .strict()
+
+export const backupManifestSchema = z
+  .object({
+    formatVersion: z.literal(1),
+    applicationId: z.literal('studio.agentstack.desktop'),
+    applicationVersion: z.string().min(1),
+    createdAt: z.string().datetime(),
+    database: z
+      .object({
+        schemaVersion: z.number().int().positive(),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        sizeBytes: z.number().int().nonnegative(),
+      })
+      .strict(),
+    files: z.array(backupFileEntrySchema).max(100_000),
+    excluded: z.array(z.enum(['keychain-secret-values', 'logs', 'symbolic-links'])),
+    excludedSymbolicLinks: z.number().int().nonnegative(),
+  })
+  .strict()
 
 export type BackupManifest = z.infer<typeof backupManifestSchema>
 

@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CapabilityId, ComponentRecord } from '../../../shared/component'
 import type { StackState } from '../../../shared/runtime-plan'
-import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
+import { capabilityLabel, compatibilityLabels, stackStatusLabels, validationLabels } from '../copy'
 
 interface StackEditorViewProps {
   agentId: string
@@ -24,8 +24,10 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
   const [isChoosing, setChoosing] = useState(false)
   const [pendingKey, setPendingKey] = useState<string>()
   const firstConflict = useRef<HTMLFieldSetElement>(null)
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setStatus('loading')
     setError(undefined)
     try {
@@ -33,10 +35,12 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
         window.studio.components.list(),
         window.studio.components.getStack(agentId),
       ])
-      setCatalog(nextCatalog)
+      if (request !== loadRequest.current) return
+      setCatalog(nextCatalog.filter(({ archivedAt }) => !archivedAt))
       setStack(nextStack)
       setStatus('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法载入 Stack。')
       setStatus('error')
     }
@@ -44,6 +48,11 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
 
   useEffect(() => {
     void load()
+  }, [load])
+
+  useEffect(() => {
+    if (!window.studio.studioProject?.onExternalChanged) return undefined
+    return window.studio.studioProject.onExternalChanged(() => void load())
   }, [load])
 
   const coverage = useMemo(() => {
@@ -84,6 +93,17 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
     } finally {
       setPendingKey(undefined)
     }
+  }
+
+  async function mutateProject(
+    change: (expectedRevision: number) => Promise<unknown>,
+  ): Promise<StackState> {
+    const state = await window.studio.studioProject!.current()
+    if (!state.project || state.localAgentId !== agentId) {
+      throw new Error('请先切换到该 Agent 绑定的当前项目。')
+    }
+    await change(state.project.revision)
+    return window.studio.components.getStack(agentId)
   }
 
   if (status === 'loading') {
@@ -158,7 +178,12 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                     disabled={Boolean(pendingKey)}
                     onClick={() =>
                       void runChange(`add-${component.id}`, () =>
-                        window.studio.components.addToStack({ agentId, componentId: component.id }),
+                        mutateProject((expectedRevision) =>
+                          window.studio.studioProject!.addToStack({
+                            expectedRevision,
+                            componentId: component.id,
+                          }),
+                        ),
                       )
                     }
                     type="button"
@@ -219,10 +244,12 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                     disabled={Boolean(pendingKey)}
                     onClick={() =>
                       void runChange(`remove-${component.id}`, () =>
-                        window.studio.components.removeFromStack({
-                          agentId,
-                          componentId: component.id,
-                        }),
+                        mutateProject((expectedRevision) =>
+                          window.studio.studioProject!.removeFromStack({
+                            expectedRevision,
+                            componentId: component.id,
+                          }),
+                        ),
                       )
                     }
                     title={`从 Stack 移除 ${component.descriptor.name}`}
@@ -271,11 +298,13 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                             name={`owner-${capability}`}
                             onChange={() =>
                               void runChange(`owner-${capability}`, () =>
-                                window.studio.components.selectOwner({
-                                  agentId,
-                                  capability,
-                                  componentId: component.id,
-                                }),
+                                mutateProject((expectedRevision) =>
+                                  window.studio.studioProject!.setOwner({
+                                    expectedRevision,
+                                    capability,
+                                    componentId: component.id,
+                                  }),
+                                ),
                               )
                             }
                             type="radio"
@@ -312,7 +341,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
             <WarningCircle aria-hidden="true" size={22} weight="fill" />
           )}
           <div>
-            <h3>Runtime Plan {stack.compilation.status === 'ready' ? '已就绪' : '已阻断'}</h3>
+            <h3>Runtime Plan {stackStatusLabels[stack.compilation.status]}</h3>
             <p>
               {stack.compilation.status === 'ready'
                 ? '所有 Owner、依赖和兼容性检查已通过。'

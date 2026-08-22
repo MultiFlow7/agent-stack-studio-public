@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { compatibilityRemediationTasksSchema } from '../shared/remediation'
+import { compatibilityAssessmentSchema } from '../shared/compatibility-assessment'
 import { executionModeSchema } from '../shared/agent'
 import { capabilityIdSchema, componentDescriptorSchema } from '../shared/component'
 
@@ -402,6 +403,7 @@ export const projectValidationSchema = z
     status: z.enum(['ready', 'blocked']),
     revision: z.number().int().nonnegative(),
     issues: z.array(validationIssueSchema),
+    assessments: z.array(compatibilityAssessmentSchema).optional(),
     remediationTasks: compatibilityRemediationTasksSchema,
     runtimePlanHash: z
       .string()

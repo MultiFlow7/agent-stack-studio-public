@@ -1,0 +1,68 @@
+{
+  "contractVersion": 1,
+  "navigation": [
+    { "id": "agents", "label": "Agent" },
+    { "id": "components", "label": "组件库" },
+    { "id": "discovery", "label": "发现" },
+    { "id": "experiments", "label": "实验" },
+    { "id": "runs", "label": "运行记录" },
+    { "id": "settings", "label": "设置" }
+  ],
+  "approvedPlaceholders": [
+    {
+      "path": "src/renderer/src/components/SecretReferencesPanel.tsx",
+      "value": "例如 OpenAI API",
+      "purpose": "Keychain 引用用途输入示例"
+    },
+    {
+      "path": "src/renderer/src/components/SecretReferencesPanel.tsx",
+      "value": "例如 openai-api",
+      "purpose": "Keychain 账户输入示例"
+    },
+    {
+      "path": "src/renderer/src/components/ComponentCatalogView.tsx",
+      "value": "名称、Contract ID 或能力",
+      "purpose": "组件目录筛选提示"
+    },
+    {
+      "path": "src/renderer/src/components/ExperimentsView.tsx",
+      "value": "Prompt、种子、Run 或失败原因",
+      "purpose": "实验历史筛选提示"
+    },
+    {
+      "path": "src/renderer/src/components/CommandPalette.tsx",
+      "value": "Agent、组件、Run、实验或操作…",
+      "purpose": "本地命令中心查询提示"
+    },
+    {
+      "path": "src/renderer/src/components/SourceDiscoveryView.tsx",
+      "value": "能力、框架或 GitHub 搜索限定符",
+      "purpose": "公开来源查询提示"
+    }
+  ],
+  "approvedHarnesses": [
+    {
+      "path": "src/main/index.ts",
+      "tokens": [
+        "STUDIO_CAPTURE_DELAY_MS",
+        "STUDIO_CAPTURE_PATH",
+        "STUDIO_CAPTURE_USER_DATA_PATH",
+        "STUDIO_CAPTURE_VIEW",
+        "STUDIO_E2E_PROJECT_EXPORT_PATH",
+        "STUDIO_PACKAGED_E2E",
+        "STUDIO_SMOKE_TEST"
+      ],
+      "purpose": "最终 Electron 包的截图、冒烟和 E2E 启动控制；不替换 Studio Core"
+    },
+    {
+      "path": "scripts/e2e-packaged-app.mjs",
+      "tokens": [
+        "STUDIO_CAPTURE_USER_DATA_PATH",
+        "STUDIO_E2E_PROJECT_EXPORT_PATH",
+        "STUDIO_E2E_SCREENSHOT",
+        "STUDIO_PACKAGED_E2E"
+      ],
+      "purpose": "最终 .app 与包内 CLI 的黑盒验收入口"
+    }
+  ]
+}

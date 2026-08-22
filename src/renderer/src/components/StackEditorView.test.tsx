@@ -9,6 +9,7 @@ import type {
   SelectCapabilityOwnerInput,
 } from '../../../shared/component'
 import type { StudioApi } from '../../../shared/ipc'
+import type { ProjectComponentInput, ProjectOwnerInput } from '../../../shared/studio-project'
 import type { CapabilityOwner, StackState } from '../../../shared/runtime-plan'
 import { StackEditorView } from './StackEditorView'
 
@@ -113,6 +114,26 @@ function installApi() {
     },
     maintenance: {} as StudioApi['maintenance'],
     preferences: {} as StudioApi['preferences'],
+    commandCenter: {} as StudioApi['commandCenter'],
+    studioProject: {
+      current: vi.fn(() =>
+        Promise.resolve({
+          localAgentId: agentId,
+          project: { revision: state.revision - 1 },
+        } as never),
+      ),
+      addToStack: vi.fn((input: ProjectComponentInput) => {
+        const component = catalog.find(({ id }) => id === input.componentId)
+        if (!component) throw new Error('Fixture component is missing.')
+        state = createState([...state.components, component], state.owners, state.revision + 1)
+        return Promise.resolve({} as never)
+      }),
+      removeFromStack: vi.fn(() => Promise.resolve({} as never)),
+      setOwner: vi.fn((input: ProjectOwnerInput) => {
+        void selectOwner({ agentId, capability: input.capability, componentId: input.componentId })
+        return Promise.resolve({} as never)
+      }),
+    } as unknown as StudioApi['studioProject'],
     discovery: {} as StudioApi['discovery'],
     menu: {
       onCreateAgent: vi.fn(() => () => undefined),
@@ -140,7 +161,7 @@ describe('StackEditorView', () => {
     await user.click(within(promptGroup).getByRole('radio', { name: /本地 Harness X/ }))
     await user.click(within(contextGroup).getByRole('radio', { name: /研究扩展 Y/ }))
 
-    expect(await screen.findByRole('heading', { name: 'Runtime Plan 已就绪' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'Runtime Plan 就绪' })).toBeVisible()
     await waitFor(() => expect(selectOwner).toHaveBeenCalledTimes(2))
   })
 })

@@ -12,6 +12,7 @@ import {
   type RuntimePlanCompilation,
   type RuntimePlanIssue,
 } from '../../shared/runtime-plan'
+import { assessComponentCompatibility } from '../../shared/compatibility-assessment'
 
 export interface CompileRuntimePlanInput {
   agentId: string
@@ -40,24 +41,26 @@ export function compileRuntimePlan(input: CompileRuntimePlanInput): RuntimePlanC
 
   for (const component of input.components) {
     const { compatibility } = component.descriptor
-    if (compatibility.level === 'blocked' || compatibility.validation === 'failed') {
+    const assessment = assessComponentCompatibility({
+      componentId: component.id,
+      descriptor: component.descriptor,
+      checkedAt: new Date().toISOString(),
+    })
+    if (assessment.status === 'incompatible') {
       issues.push({
         code: 'COMPONENT_BLOCKED',
         capability: null,
         componentId: component.id,
-        message: `${component.descriptor.name} 已标记为不兼容：${compatibility.detail}`,
+        message: `${component.descriptor.name} 不兼容：${assessment.blockers.join('；')}`,
       })
-    } else if (compatibility.level === 'unknown') {
+    } else if (assessment.status === 'unchecked') {
       issues.push({
         code: 'COMPATIBILITY_UNKNOWN',
         capability: null,
         componentId: component.id,
-        message: `${component.descriptor.name} 缺少兼容性证据。`,
+        message: `${component.descriptor.name} 未完成兼容性检查：${assessment.blockers.join('；')}`,
       })
-    } else if (
-      ['adapter', 'fork'].includes(compatibility.level) &&
-      compatibility.validation !== 'runtime-verified'
-    ) {
+    } else if (assessment.status === 'adapter-required') {
       remediationTasks.push(
         ...buildCompatibilityRemediationTasks({
           componentId: component.id,
@@ -69,7 +72,7 @@ export function compileRuntimePlan(input: CompileRuntimePlanInput): RuntimePlanC
         code: 'ADAPTER_UNVERIFIED',
         capability: null,
         componentId: component.id,
-        message: `${component.descriptor.name} 的 Adapter 尚未通过最小运行验证。`,
+        message: `${component.descriptor.name} 需要 Adapter/Fork 契约与受信最小运行验证。`,
       })
     }
 

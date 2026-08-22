@@ -18,6 +18,7 @@ import {
   type ExperimentDetail,
   type ExperimentRecord,
 } from '../../shared/experiment'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
 
 const runTerminalStatuses = new Set(['succeeded', 'failed', 'cancelled', 'timed-out'])
 
@@ -60,7 +61,10 @@ export class ExperimentService {
     if (stack.compilation.status !== 'ready') {
       throw new AppError('VALIDATION_FAILED', 'Stack 预检未通过，不能锁定实验。')
     }
-    if (version.snapshot.stack.revision !== stack.revision) {
+    const frozenRevision = isProjectAgentVersionReference(version.snapshot)
+      ? version.snapshot.projectRevision + 1
+      : version.snapshot.stack.revision
+    if (frozenRevision !== stack.revision) {
       throw new AppError('VALIDATION_FAILED', 'Stack 草稿已在最新版本之后变化，请先创建新版本。')
     }
 

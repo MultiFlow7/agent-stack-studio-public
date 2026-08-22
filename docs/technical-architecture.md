@@ -308,3 +308,46 @@ flowchart LR
 - Preload 的六个 discovery 白名单方法统一使用相同错误净化入口，移除 Electron invoke 前缀后才交给 Renderer；输入与成功输出继续分别经过原有 Zod Schema。
 - Renderer 的失败展示是临时 UI 状态，不写 SQLite、`.agent-stack`、日志或查询历史；本地少于两字符的校验在 IPC 前完成。
 - packaged E2E 只触发本地校验，不让 CI 成功取决于 GitHub 网络。Provider 的 HTTP/timeout/network 语义由注入 Fetch 的 Adapter tests 验证，不引入产品 mock 开关。
+
+## 31. M26 工作区命令中心只读聚合契约
+
+- `CommandCenterService` 只组合 `StudioProjectService`、`AgentStatusService`、`ComponentCatalogService`、`RunService` 和 `ExperimentService` 的既有事实；纯 Core 函数负责摘要、索引、排序与搜索。
+- `command-center:snapshot` 不接受输入；`command-center:search` 只接受最长 100 字符的严格查询对象。Main 输入和输出、Preload 输入和输出均经共享 Zod Schema 复核。
+- 搜索目的地是显式 discriminated union，仅允许既有页面、实体 UUID 和固定应用动作；不接受路径、URL、数据库表达式、Runtime 参数或密钥字段。
+- Renderer 以 3 秒只读刷新投影，活动 Run 时缩短为 500ms；项目外部修改通知会立即刷新。摘要失败不阻断既有页面和本地编辑流程。
+- 命令中心不产生数据库迁移，不改变 `.agent-stack` v2、Agent Stack Package v2、Runtime Plan/子进程协议、CLI 项目命令或 release compatibility manifest。
+
+## 32. M27 本地验收门禁契约
+
+- `config/local-acceptance.json` 是验收分类清单，不是产品配置或发布兼容事实；它只列出一级导航、带用途的输入提示和最终包控制。
+- `verify-local-acceptance.mjs` 扫描 tracked 与 prospective untracked production 源码，拒绝未处置工作标记、占位/死操作、未分类 harness 和导航契约断裂。
+- packaged E2E 使用 CDP Accessibility domain 读取最终 Renderer 的可访问树，并真实点击全部一级导航；它不注入 IPC 结果或替换 Core/Runtime。
+- M27 不增加 IPC、数据库迁移、项目/包 Schema、Runtime 消息或 CLI 行为；正式分发继续携带相同业务产物。
+
+## 33. M28 证据图与最终报告契约
+
+- `config/final-evidence.json` 只存放需求/流程/证据引用和预期产物，不进入 Electron 应用包的运行配置或领域输入。
+- `evidence-ledger.mjs` 解析两张 Markdown 矩阵为唯一状态来源，验证连续 ID、状态词表、自动化引用、八状态完整性、截图 producer 和外部阻断白名单。
+- 报告生成器只读 Git HEAD、矩阵、manifest 和本地产物；输出到被忽略的 `release/`，不将本机绝对路径写回项目事实。
+- 公开 snapshot 门禁对不透明二进制采取默认拒绝，仅允许 `build/icon.icns` 与 `build/icon.png`；本地截图不可被 Git 跟踪。
+- M28 不增加 Studio Core、IPC、Preload、Renderer 业务、SQLite、项目/包 Schema、Runtime 协议或 CLI 行为。
+
+## 34. M29 稳定性与敏感诊断契约
+
+- Main 进程使用单实例锁和 `077` umask；项目写入、迁移和恢复共享同一排他锁，锁文件含进程与随机令牌，只能回收已死亡进程且超过宽限期的锁。
+- Preload 只合并完全相同的只读 IPC；任何写操作开始和结束时都清空合并表。Renderer 用递增请求序号拒绝晚到响应覆盖新状态。
+- 发布预检/提交、恢复 staging、Keychain locator、维护对话框和来源发现各自使用确定性的单航班或串行队列；不同恢复来源不得共享结果。
+- 所有外部或子进程边界必须有超时、输出上限、AbortSignal 和受控强制清理；Runtime stdout/stderr 正文不进入主日志。
+- `sensitive-data.ts` 是日志、CLI、IPC 与 Runtime 诊断净化的共享实现；凭证 URL、Provider token、Authorization 和敏感字段必须在持久化或跨边界前被拒绝或替换。
+- M29 不改变 SQLite v8、`.agent-stack` v2、Agent Stack Package v2、Runtime Plan/消息或 CLI 项目命令，正式分发无需重写业务路径。
+
+## 35. M30 单一便携事实源与 Agent 引用契约
+
+- `.agent-stack` v2 继续是项目便携事实文件；M30 收回了 Component/Stack/Owner/Version/Workflow 在 SQLite 的正常读写路径，不新建同步层。
+- SQLite v9 新增 `agent_project_links`，以稳定 Agent ID 引用项目 ID、路径和当前不可变项目 Version；Agent Version 可保存 `project-reference`，但运行/发布前必须从对应项目快照在内存中实体化并再校验。
+- 主进程的 `StudioProjectService` 是 GUI 投影与本机引用的编排器；GUI 和 CLI 共用 Studio Core 的项目读写、revision、完整性、Descriptor、Stack、Owner、Workflow 和冻结逻辑。
+- `CompatibilityAssessment` 是 Core 的可解释派生结果，根据 platform、entrypoint、capability contract、config/permission/secret 需求、能力冲突、Adapter 契约和证据等级评估；Renderer 不自行推断。
+- 运行验证只能通过已受信的精确 Runtime Adapter 白名单进入独立子进程，沿用超时、取消、强制清理、日志脱敏、Artifact 和 Receipt 边界；未知项目的静态检查不执行代码。
+- 启动迁移先写经 Core 验证的项目与 `.agent-stack.migration-backup`，再以单一 SQLite 事务写入引用并清理可携副本。任一步失败均可幂等重试；无法无损归属的孤立数据安全停止启动。
+
+M30 明确取代上文 M29 “SQLite v8 不变”的时点性描述；项目/Package 格式仍为 v2，Runtime 消息与 CLI 项目命令保持兼容。

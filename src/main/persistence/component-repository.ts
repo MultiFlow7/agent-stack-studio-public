@@ -95,6 +95,19 @@ export class ComponentRepository {
     return componentListSchema.parse(rows.map(mapComponent))
   }
 
+  clearLegacyPortableFacts(): void {
+    const stackReferences = this.#database
+      .prepare('SELECT COUNT(*) AS count FROM agent_stack_components')
+      .get() as { count: number }
+    if (stackReferences.count > 0) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        '仍有 Agent Stack 引用 SQLite 组件，已拒绝清理旧事实源。',
+      )
+    }
+    this.#database.prepare('DELETE FROM components').run()
+  }
+
   addToStack(agentId: string, componentId: string): StackState {
     const timestamp = new Date().toISOString()
     this.#database.exec('BEGIN IMMEDIATE')
@@ -135,6 +148,13 @@ export class ComponentRepository {
     const candidate = state.components.find((component) => component.id === componentId)
     if (!candidate?.descriptor.provides.some((provider) => provider.capability === capability)) {
       throw new AppError('VALIDATION_FAILED', '所选组件不提供该能力。')
+    }
+    if (
+      state.owners.some(
+        (owner) => owner.capability === capability && owner.componentId === componentId,
+      )
+    ) {
+      return state
     }
     const timestamp = new Date().toISOString()
     this.#database.exec('BEGIN IMMEDIATE')

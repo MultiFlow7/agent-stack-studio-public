@@ -104,6 +104,74 @@ async function waitForExpression(client, expression) {
   throw new Error(`界面状态等待超时：${expression}`)
 }
 
+async function verifyNavigationReachability(client) {
+  const destinations = [
+    ['Agent', 'Agent'],
+    ['组件库', '组件库'],
+    ['发现', '发现组件来源'],
+    ['实验', '实验'],
+    ['运行记录', '运行记录'],
+    ['设置', '设置'],
+  ]
+  const visited = []
+  for (const [label, heading] of destinations) {
+    const state = await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('nav button')].find(
+          (element) => element.getAttribute('aria-label') === ${JSON.stringify(label)}
+        )
+        if (!button || button.disabled) return { found: Boolean(button), disabled: button?.disabled }
+        button.focus()
+        button.click()
+        return { found: true, disabled: false }
+      })()`,
+    )
+    if (!state.found || state.disabled) {
+      throw new Error(`主导航不可达：${label}（${JSON.stringify(state)}）`)
+    }
+    await waitForExpression(
+      client,
+      `document.querySelector('h1')?.textContent === ${JSON.stringify(heading)}`,
+    )
+    const active = await evaluate(
+      client,
+      `document.querySelector('nav button[aria-current=page]')?.getAttribute('aria-label')`,
+    )
+    if (active !== label) throw new Error(`主导航未标记当前页面：${label}（实际 ${active}）`)
+    visited.push(label)
+  }
+  return visited
+}
+
+async function verifyAccessibilityTree(client) {
+  await client.send('Accessibility.enable')
+  const { nodes = [] } = await client.send('Accessibility.getFullAXTree')
+  const exposed = nodes.filter((node) => !node.ignored)
+  const buttonNames = exposed
+    .filter((node) => node.role?.value === 'button')
+    .map((node) => String(node.name?.value ?? '').trim())
+  const requiredNames = [
+    'Agent',
+    '组件库',
+    '发现',
+    '实验',
+    '运行记录',
+    '设置',
+    '搜索 Agent、组件、Run…',
+    '创建 Agent',
+  ]
+  const missing = requiredNames.filter((name) => !buttonNames.includes(name))
+  const unnamedButtons = buttonNames.filter((name) => !name).length
+  const roles = new Set(exposed.map((node) => node.role?.value))
+  if (missing.length || unnamedButtons || !roles.has('main') || !roles.has('navigation')) {
+    throw new Error(
+      `可访问树不完整：${JSON.stringify({ missing, unnamedButtons, hasMain: roles.has('main'), hasNavigation: roles.has('navigation') })}`,
+    )
+  }
+  return { buttonCount: buttonNames.length, unnamedButtons }
+}
+
 async function captureSourceDiscoveryEvidence(client, screenshotPath) {
   await evaluate(
     client,
@@ -164,6 +232,77 @@ async function captureSourceDiscoveryEvidence(client, screenshotPath) {
   const errorScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-source-discovery-validation-error${extension}`
   await writeFile(errorScreenshotPath, Buffer.from(errorScreenshot.data, 'base64'))
   return { errorScreenshotPath, failureCopy, idleScreenshotPath }
+}
+
+async function captureWorkspaceCommandCenterEvidence(client, screenshotPath) {
+  await waitForExpression(
+    client,
+    "document.querySelector('.workspace-identity')?.textContent?.includes('Packaged CLI E2E') && document.querySelector('.topbar__activity')?.getAttribute('aria-label')?.includes('已完成')",
+  )
+  await evaluate(
+    client,
+    `(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'k',
+        metaKey: true,
+        bubbles: true
+      }))
+      return true
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    "document.querySelector('[role=dialog] h2')?.textContent === '全局搜索与操作'",
+  )
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector('.command-palette input[type=search]')
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, '草稿修订')
+      input?.dispatchEvent(new Event('input', { bubbles: true }))
+      input?.focus()
+      return Boolean(input)
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    "document.querySelector('[role=listbox]')?.textContent?.includes('Packaged CLI E2E')",
+  )
+  const state = await evaluate(
+    client,
+    `({
+      workspace: document.querySelector('.workspace-identity')?.textContent?.trim(),
+      activity: document.querySelector('.topbar__activity')?.getAttribute('aria-label'),
+      result: document.querySelector('[role=option][aria-selected=true]')?.textContent?.trim(),
+      activeElement: document.activeElement?.getAttribute('type')
+    })`,
+  )
+  if (
+    !state.workspace?.includes('Packaged CLI E2E') ||
+    !state.activity?.includes('已完成') ||
+    !state.result?.includes('Packaged CLI E2E') ||
+    state.activeElement !== 'search'
+  ) {
+    throw new Error(`工作区命令中心状态不完整：${JSON.stringify(state)}`)
+  }
+  const screenshot = await client.send('Page.captureScreenshot', { format: 'png' })
+  const extension = path.extname(screenshotPath)
+  const commandCenterScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-command-center${extension}`
+  await writeFile(commandCenterScreenshotPath, Buffer.from(screenshot.data, 'base64'))
+  await evaluate(
+    client,
+    `(() => {
+      const input = document.querySelector('.command-palette input[type=search]')
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      return Boolean(input)
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    "!document.querySelector('.command-palette') && document.body.innerText.includes('Packaged CLI E2E')",
+  )
+  return { commandCenterScreenshotPath, state }
 }
 
 async function captureRunHistoryEvidence(client, screenshotPath) {
@@ -433,7 +572,15 @@ async function verifyPackagedCli({ applicationPath, projectPath, fixturePath }) 
   if (!version.ok || version.data?.version !== packageJson.version) {
     throw new Error(`打包 CLI 版本不一致：${JSON.stringify(version)}`)
   }
-  const initialized = await invoke('project', 'init', fixturePath, '--name', 'Packaged CLI E2E')
+  const initialized = await invoke(
+    'project',
+    'init',
+    fixturePath,
+    '--name',
+    'Packaged CLI E2E',
+    '--execution-mode',
+    'hybrid',
+  )
   if (!initialized.ok || initialized.data?.project?.name !== 'Packaged CLI E2E') {
     throw new Error(`打包 CLI 创建项目失败：${JSON.stringify(initialized)}`)
   }
@@ -561,6 +708,9 @@ export async function runPackagedAppE2e(options = {}) {
     ) {
       throw new Error(`Renderer 安全或语言边界不符合预期：${JSON.stringify(rendererBoundary)}`)
     }
+
+    const reachableNavigation = await verifyNavigationReachability(client)
+    const accessibilityTree = await verifyAccessibilityTree(client)
 
     const collapsedSidebar = await evaluate(
       client,
@@ -735,38 +885,8 @@ export async function runPackagedAppE2e(options = {}) {
     await evaluate(
       client,
       `(() => {
-        const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.includes('创建空白 Agent')
-        )
-        button?.click()
-        return Boolean(button)
-      })()`,
-    )
-    await waitForExpression(
-      client,
-      "document.querySelector('[role=dialog] h2')?.textContent === '创建 Agent'",
-    )
-    await evaluate(
-      client,
-      `(() => {
-        const input = document.querySelector('#agent-name')
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-        setter?.call(input, 'M12 Hybrid 本地验证')
-        input?.dispatchEvent(new Event('input', { bubbles: true }))
-        document.querySelector('input[value="hybrid"]')?.click()
-        document.querySelector('[role=dialog] form')?.requestSubmit()
-        return true
-      })()`,
-    )
-    await waitForExpression(
-      client,
-      "document.body.innerText.includes('M12 Hybrid 本地验证') && !document.querySelector('[role=dialog]')",
-    )
-    await evaluate(
-      client,
-      `(() => {
         const button = [...document.querySelectorAll('.agent-row')].find(
-          (element) => element.textContent?.includes('M12 Hybrid 本地验证')
+          (element) => element.textContent?.includes('Packaged CLI E2E')
         )
         button?.focus()
         button?.click()
@@ -775,7 +895,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.querySelector('h1')?.textContent === 'M12 Hybrid 本地验证'",
+      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
     )
 
     await evaluate(
@@ -794,7 +914,9 @@ export async function runPackagedAppE2e(options = {}) {
       client,
       `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '添加第一个组件'
+          (element) =>
+            element.textContent?.trim() === '添加组件' ||
+            element.textContent?.trim() === '添加第一个组件'
         )
         button?.click()
         return Boolean(button)
@@ -812,7 +934,7 @@ export async function runPackagedAppE2e(options = {}) {
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 已就绪')")
+    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 就绪')")
 
     await evaluate(
       client,
@@ -917,7 +1039,7 @@ export async function runPackagedAppE2e(options = {}) {
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 已就绪')")
+    await waitForExpression(client, "document.body.innerText.includes('Runtime Plan 就绪')")
     await evaluate(
       client,
       `(() => {
@@ -949,14 +1071,17 @@ export async function runPackagedAppE2e(options = {}) {
       client,
       `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '创建版本'
+          (element) => element.textContent?.trim() === '冻结 Agent Version'
         )
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('已从当前草稿创建版本 1')")
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('已冻结不可变 Agent Version 1')",
+    )
 
     await evaluate(
       client,
@@ -992,6 +1117,10 @@ export async function runPackagedAppE2e(options = {}) {
     const screenshotExtension = path.extname(screenshotPath)
     const runtimeScreenshotPath = `${screenshotPath.slice(0, -screenshotExtension.length)}-runtime${screenshotExtension}`
     await writeFile(runtimeScreenshotPath, Buffer.from(runtimeScreenshot.data, 'base64'))
+    const commandCenterEvidence = await captureWorkspaceCommandCenterEvidence(
+      client,
+      screenshotPath,
+    )
 
     await evaluate(
       client,
@@ -1006,7 +1135,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('Stack 就绪') && document.body.innerText.includes('1 个组件') && document.body.innerText.includes('最近 Run') && document.body.innerText.includes('已完成') && document.body.innerText.includes('尚未发布')",
+      "document.body.innerText.includes('Stack 状态') && document.body.innerText.includes('就绪') && document.body.innerText.includes('1 个组件') && document.body.innerText.includes('最近 Run') && document.body.innerText.includes('已完成') && document.body.innerText.includes('尚未发布')",
     )
     const agentStatusScreenshot = await client.send('Page.captureScreenshot', { format: 'png' })
     const agentStatusScreenshotPath = `${screenshotPath.slice(0, -screenshotExtension.length)}-agent-status${screenshotExtension}`
@@ -1025,13 +1154,13 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "Boolean([...document.querySelectorAll('.agent-row')].find((element) => element.textContent?.includes('M12 Hybrid 本地验证') && element.textContent?.includes('版本 1') && element.textContent?.includes('Stack 就绪') && element.textContent?.includes('最近 Run：已完成') && element.textContent?.includes('发布：未发布')))",
+      "Boolean([...document.querySelectorAll('.agent-row')].find((element) => element.textContent?.includes('Packaged CLI E2E') && element.textContent?.includes('版本 1') && element.textContent?.includes('Stack 就绪') && element.textContent?.includes('最近 Run：已完成') && element.textContent?.includes('发布：未发布')))",
     )
     await evaluate(
       client,
       `(() => {
         const button = [...document.querySelectorAll('.nav-item')].find(
-          (element) => element.textContent?.trim() === '组件'
+          (element) => element.textContent?.trim() === '组件库'
         )
         button?.focus()
         button?.click()
@@ -1040,7 +1169,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.querySelector('h1')?.textContent === '组件' && document.body.innerText.includes('本地 Harness X') && document.body.innerText.includes('1 个 Agent 草稿') && document.body.innerText.includes('1 个不可变版本')",
+      "document.querySelector('h1')?.textContent === '组件库' && document.body.innerText.includes('本地 Harness X') && document.body.innerText.includes('1 个 Agent 草稿') && document.body.innerText.includes('1 个不可变版本')",
     )
     await evaluate(
       client,
@@ -1055,7 +1184,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('Manifest 与来源') && document.body.innerText.includes('Adapter / Fork 状态') && document.body.innerText.includes('契约测试与来源证据') && document.body.innerText.includes('当前使用方与受影响版本') && document.body.innerText.includes('M12 Hybrid 本地验证') && document.body.innerText.includes('版本 1')",
+      "document.body.innerText.includes('Manifest 与来源') && document.body.innerText.includes('Adapter / Fork 状态') && document.body.innerText.includes('契约测试与来源证据') && document.body.innerText.includes('当前使用方与受影响版本') && document.body.innerText.includes('Packaged CLI E2E') && document.body.innerText.includes('版本 1')",
     )
     const componentDetailScreenshot = await client.send('Page.captureScreenshot', {
       format: 'png',
@@ -1081,7 +1210,7 @@ export async function runPackagedAppE2e(options = {}) {
       client,
       `(() => {
         const button = [...document.querySelectorAll('.agent-row')].find(
-          (element) => element.textContent?.includes('M12 Hybrid 本地验证')
+          (element) => element.textContent?.includes('Packaged CLI E2E')
         )
         button?.focus()
         button?.click()
@@ -1090,7 +1219,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.querySelector('h1')?.textContent === 'M12 Hybrid 本地验证'",
+      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
     )
 
     const { runHistoryFailureCopy, runHistoryScreenshotPath } = await captureRunHistoryEvidence(
@@ -1132,36 +1261,6 @@ export async function runPackagedAppE2e(options = {}) {
       client,
       `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '复制 Agent'
-        )
-        button?.focus()
-        button?.click()
-        return Boolean(button)
-      })()`,
-    )
-    await waitForExpression(
-      client,
-      "document.body.innerText.includes('M12 Hybrid 本地验证 副本') && document.body.innerText.includes('历史记录没有被复制')",
-    )
-    await evaluate(
-      client,
-      `(() => {
-        const button = [...document.querySelectorAll('.agent-row')].find(
-          (element) => element.textContent?.includes('M12 Hybrid 本地验证 副本')
-        )
-        button?.focus()
-        button?.click()
-        return Boolean(button)
-      })()`,
-    )
-    await waitForExpression(
-      client,
-      "document.querySelector('h1')?.textContent === 'M12 Hybrid 本地验证 副本'",
-    )
-    await evaluate(
-      client,
-      `(() => {
-        const button = [...document.querySelectorAll('button')].find(
           (element) => element.textContent?.trim() === '归档'
         )
         button?.focus()
@@ -1181,13 +1280,14 @@ export async function runPackagedAppE2e(options = {}) {
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('M12 Hybrid 本地验证 副本')")
+    await waitForExpression(client, "document.body.innerText.includes('Packaged CLI E2E')")
     await evaluate(
       client,
       `(() => {
         const button = [...document.querySelectorAll('.agent-row')].find(
-          (element) => element.textContent?.includes('M12 Hybrid 本地验证 副本')
+          (element) => element.textContent?.includes('Packaged CLI E2E')
         )
+        button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
@@ -1199,6 +1299,7 @@ export async function runPackagedAppE2e(options = {}) {
         const button = [...document.querySelectorAll('button')].find(
           (element) => element.textContent?.trim() === '永久删除'
         )
+        button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
@@ -1207,8 +1308,33 @@ export async function runPackagedAppE2e(options = {}) {
     await evaluate(
       client,
       `(() => {
+        const button = [...document.querySelectorAll('.danger-confirmation button')].find(
+          (element) => element.textContent?.trim() === '取消'
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(client, "document.body.innerText.includes('恢复 Agent')")
+    await evaluate(
+      client,
+      `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '永久删除此 Agent'
+          (element) => element.textContent?.trim() === '恢复 Agent'
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('Agent 已恢复到本地 Agent 列表')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.agent-row')].find(
+          (element) => element.textContent?.includes('Packaged CLI E2E')
         )
         button?.focus()
         button?.click()
@@ -1217,25 +1343,25 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('Agent 与其空闲工作空间已永久删除') && document.body.innerText.includes('没有已归档 Agent')",
+      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
     )
 
     await evaluate(
       client,
       `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '返回现有 Agent'
+          (element) => element.textContent?.trim() === '返回全部 Agent'
         )
         button?.click()
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(client, "document.body.innerText.includes('M12 Hybrid 本地验证')")
+    await waitForExpression(client, "document.body.innerText.includes('Packaged CLI E2E')")
     await evaluate(
       client,
       `(() => {
         const button = [...document.querySelectorAll('.agent-row')].find(
-          (element) => element.textContent?.includes('M12 Hybrid 本地验证')
+          (element) => element.textContent?.includes('Packaged CLI E2E')
         )
         button?.click()
         return Boolean(button)
@@ -1243,7 +1369,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.querySelector('h1')?.textContent === 'M12 Hybrid 本地验证'",
+      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
     )
     await evaluate(
       client,
@@ -1328,25 +1454,33 @@ export async function runPackagedAppE2e(options = {}) {
       "document.body.innerText.includes('Agent 已恢复到本地 Agent 列表')",
     )
 
-    const openedStudioProject = await evaluate(
+    const portableStartingState = await packagedCli.invoke(
+      'project',
+      'inspect',
+      '--project',
+      packagedCli.fixturePath,
+    )
+    const portableBaseRevision = portableStartingState.data?.project?.revision
+    if (!portableStartingState.ok || !Number.isInteger(portableBaseRevision)) {
+      throw new Error(
+        `打包 CLI 无法读取 Agent 项目起始 revision：${JSON.stringify(portableStartingState)}`,
+      )
+    }
+
+    const openedProjectSettings = await evaluate(
       client,
       `(() => {
-        const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === 'Studio 项目'
-        )
+        const button = document.querySelector('.workspace-identity')
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    if (!openedStudioProject) throw new Error('打包应用中找不到“Studio 项目”导航。')
+    if (!openedProjectSettings) throw new Error('打包应用中找不到当前项目入口。')
+    await waitForExpression(client, "document.querySelector('h1')?.textContent === '项目设置'")
     await waitForExpression(
       client,
-      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
-    )
-    await waitForExpression(
-      client,
-      "document.body.innerText.includes('revision 0') && document.body.innerText.includes('Stack 为空')",
+      `document.body.innerText.includes('Packaged CLI E2E') && document.body.innerText.includes('revision ${portableBaseRevision}')`,
     )
 
     const componentSourcePath = path.join(projectPath, 'src', 'test', 'fixtures', 'm7', 'detected')
@@ -1357,37 +1491,36 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '0',
+      String(portableBaseRevision),
     )
-    const importedComponent = imported.data?.project?.components?.[0]
+    const importedComponent = imported.data?.project?.components?.find(
+      ({ descriptor }) => descriptor.id === 'detected.fixture',
+    )
     if (
       !imported.ok ||
-      imported.data?.project?.revision !== 1 ||
+      imported.data?.project?.revision !== portableBaseRevision + 1 ||
       importedComponent?.descriptor?.name !== 'detected-fixture'
     ) {
       throw new Error(`打包 CLI 外部导入结果异常：${JSON.stringify(imported)}`)
     }
     await waitForExpression(
       client,
-      "document.body.innerText.includes('界面已刷新到 revision 1') && document.body.innerText.includes('detected-fixture')",
+      `document.body.innerText.includes('检测到外部修改，已刷新到 revision ${portableBaseRevision + 1}')`,
     )
 
     const exportedFromGui = await evaluate(
       client,
       `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '导出项目包'
+          (element) => element.textContent?.trim() === '导出可移植包'
         )
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    if (!exportedFromGui) throw new Error('打包应用中找不到“导出项目包”操作。')
-    await waitForExpression(
-      client,
-      "document.body.innerText.includes('可移植包已导出') && document.body.innerText.includes('SHA-256')",
-    )
+    if (!exportedFromGui) throw new Error('打包应用中找不到“导出可移植包”操作。')
+    await waitForExpression(client, "document.body.innerText.includes('已导出可移植包')")
     const cliExportAtSameRevision = await packagedCli.invoke(
       'project',
       'export',
@@ -1400,14 +1533,14 @@ export async function runPackagedAppE2e(options = {}) {
     const cliPortablePackage = JSON.parse(await readFile(packagedCli.portablePackagePath, 'utf8'))
     if (
       !cliExportAtSameRevision.ok ||
-      cliExportAtSameRevision.data?.projectRevision !== 1 ||
+      cliExportAtSameRevision.data?.projectRevision !== portableBaseRevision + 1 ||
       JSON.stringify(guiPortablePackage) !== JSON.stringify(cliPortablePackage)
     ) {
       throw new Error('GUI 与打包 CLI 导出的同 revision 可移植包不一致。')
     }
     const serializedPortablePackage = JSON.stringify(guiPortablePackage)
     if (
-      guiPortablePackage.project?.components?.length !== 1 ||
+      !guiPortablePackage.project?.components?.some(({ id }) => id === importedComponent.id) ||
       serializedPortablePackage.includes(userDataPath) ||
       serializedPortablePackage.includes('/Users/') ||
       serializedPortablePackage.includes('secretValue') ||
@@ -1430,21 +1563,71 @@ export async function runPackagedAppE2e(options = {}) {
       Buffer.from(portableExportScreenshot.data, 'base64'),
     )
 
-    const addedFromGui = await evaluate(
+    const openedProjectAgent = await evaluate(
       client,
       `(() => {
-        const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '加入 Stack'
+        const button = document.querySelector('nav button[aria-label="Agent"]')
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    if (!openedProjectAgent) throw new Error('打包应用中找不到 Agent 主入口。')
+    await waitForExpression(client, "document.querySelector('h1')?.textContent === 'Agent'")
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.agent-row')].find(
+          (element) => element.textContent?.includes('Packaged CLI E2E')
         )
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    if (!addedFromGui) throw new Error('GUI 未显示“加入 Stack”操作。')
     await waitForExpression(
       client,
-      "document.body.innerText.includes('组件已加入 Stack') && document.body.innerText.includes('revision 2')",
+      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(client, "document.body.innerText.includes('Stack 草稿')")
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('button')].find(
+          (element) =>
+            element.textContent?.trim() === '添加组件' ||
+            element.textContent?.trim() === '添加第一个组件'
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    const addedFromGui = await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.component-picker button')].find(
+          (element) => element.textContent?.trim() === '添加 detected-fixture'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    if (!addedFromGui) throw new Error('Agent 组装器未显示导入后的组件。')
+    await waitForExpression(
+      client,
+      `document.body.innerText.includes('已添加的组件') && document.body.innerText.includes('detected-fixture') && document.body.innerText.includes('修订 ${portableBaseRevision + 3}')`,
     )
     const inspectedAfterGui = await packagedCli.invoke(
       'project',
@@ -1454,7 +1637,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     if (
       !inspectedAfterGui.ok ||
-      inspectedAfterGui.data?.project?.revision !== 2 ||
+      inspectedAfterGui.data?.project?.revision !== portableBaseRevision + 2 ||
       !inspectedAfterGui.data?.project?.stack?.componentIds?.includes(importedComponent.id)
     ) {
       throw new Error(`CLI 未读到 GUI 的 Stack 修订：${JSON.stringify(inspectedAfterGui)}`)
@@ -1467,18 +1650,39 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '2',
+      String(portableBaseRevision + 2),
     )
     if (
       !removedByCli.ok ||
-      removedByCli.data?.project?.revision !== 3 ||
-      removedByCli.data?.project?.stack?.componentIds?.length !== 0
+      removedByCli.data?.project?.revision !== portableBaseRevision + 3 ||
+      removedByCli.data?.project?.stack?.componentIds?.includes(importedComponent.id)
     ) {
       throw new Error(`打包 CLI 移出 Stack 结果异常：${JSON.stringify(removedByCli)}`)
     }
+    await evaluate(
+      client,
+      `(() => {
+        const overview = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === '概览'
+        )
+        overview?.click()
+        return Boolean(overview)
+      })()`,
+    )
+    await delay(100)
+    await evaluate(
+      client,
+      `(() => {
+        const stack = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        stack?.click()
+        return Boolean(stack)
+      })()`,
+    )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('界面已刷新到 revision 3') && document.body.innerText.includes('Stack 为空')",
+      `document.body.innerText.includes('本地 Harness X') && !document.querySelector('[aria-label="从 Stack 移除 detected-fixture"]') && document.body.innerText.includes('修订 ${portableBaseRevision + 4}')`,
     )
     const projectConsistencyScreenshot = await client.send('Page.captureScreenshot', {
       format: 'png',
@@ -1504,36 +1708,76 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '3',
+      String(portableBaseRevision + 3),
     )
     const adapterComponent = importedAdapter.data?.project?.components?.find(
       ({ descriptor }) => descriptor.id === 'fixture.legacy-memory-adapter',
     )
-    if (!importedAdapter.ok || importedAdapter.data?.project?.revision !== 4 || !adapterComponent) {
+    if (
+      !importedAdapter.ok ||
+      importedAdapter.data?.project?.revision !== portableBaseRevision + 4 ||
+      !adapterComponent
+    ) {
       throw new Error(`打包 CLI 导入 Adapter fixture 失败：${JSON.stringify(importedAdapter)}`)
     }
+    await evaluate(
+      client,
+      `(() => {
+        const overview = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === '概览'
+        )
+        overview?.click()
+        return Boolean(overview)
+      })()`,
+    )
+    await delay(100)
+    await evaluate(
+      client,
+      `(() => {
+        const stack = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        stack?.click()
+        return Boolean(stack)
+      })()`,
+    )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('界面已刷新到 revision 4') && document.body.innerText.includes('Fixture Legacy Memory Adapter')",
+      `document.body.innerText.includes('修订 ${portableBaseRevision + 5}')`,
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const existing = [...document.querySelectorAll('.component-picker button')].find(
+          (element) => element.textContent?.includes('Fixture Legacy Memory Adapter')
+        )
+        if (existing) return true
+        const toggle = [...document.querySelectorAll('button')].find(
+          (element) => element.textContent?.trim() === '添加组件'
+        )
+        toggle?.click()
+        return Boolean(toggle)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('Fixture Legacy Memory Adapter')",
     )
     const addedAdapterFromGui = await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.project-component-list > li')].find(
-          (element) => element.textContent?.includes('Fixture Legacy Memory Adapter')
-        )
-        const button = [...(row?.querySelectorAll('button') ?? [])].find(
-          (element) => element.textContent?.trim() === '加入 Stack'
+        const button = [...document.querySelectorAll('.component-picker button')].find(
+          (element) => element.textContent?.trim() === '添加 Fixture Legacy Memory Adapter'
         )
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    if (!addedAdapterFromGui) throw new Error('GUI 未显示 Adapter 的“加入 Stack”操作。')
+    if (!addedAdapterFromGui) throw new Error('Agent 组装器未显示 Adapter 组件。')
     await waitForExpression(
       client,
-      "document.body.innerText.includes('组件已加入 Stack') && document.body.innerText.includes('revision 5') && document.body.innerText.includes('Adapter / Fork 处置任务')",
+      `document.body.innerText.includes('需 Adapter') && document.body.innerText.includes('Adapter / Fork 处置任务') && document.body.innerText.includes('修订 ${portableBaseRevision + 6}')`,
     )
     const validatedAdapter = await packagedCli.invoke(
       'project',
@@ -1577,12 +1821,7 @@ export async function runPackagedAppE2e(options = {}) {
     await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.project-component-list > li')].find(
-          (element) => element.textContent?.includes('Fixture Legacy Memory Adapter')
-        )
-        const button = [...(row?.querySelectorAll('button') ?? [])].find(
-          (element) => element.textContent?.trim() === '从 Stack 移除'
-        )
+        const button = document.querySelector('[aria-label="从 Stack 移除 Fixture Legacy Memory Adapter"]')
         button?.focus()
         button?.click()
         return Boolean(button)
@@ -1590,7 +1829,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('组件已从 Stack 移除') && document.body.innerText.includes('revision 6')",
+      `document.body.innerText.includes('本地 Harness X') && !document.querySelector('[aria-label="从 Stack 移除 Fixture Legacy Memory Adapter"]') && document.body.innerText.includes('修订 ${portableBaseRevision + 7}')`,
     )
     const afterAdapterRemoval = await packagedCli.invoke(
       'project',
@@ -1600,15 +1839,31 @@ export async function runPackagedAppE2e(options = {}) {
     )
     if (
       !afterAdapterRemoval.ok ||
-      afterAdapterRemoval.data?.project?.revision !== 6 ||
+      afterAdapterRemoval.data?.project?.revision !== portableBaseRevision + 6 ||
       afterAdapterRemoval.data?.project?.stack?.componentIds?.includes(adapterComponent.id)
     ) {
       throw new Error(`CLI 未读到 GUI 的 Adapter 移出操作：${JSON.stringify(afterAdapterRemoval)}`)
     }
+    await evaluate(client, `document.querySelector('nav button[aria-label="组件库"]')?.click()`)
+    await waitForExpression(client, "document.querySelector('h1')?.textContent === '组件库'")
     await evaluate(
       client,
       `(() => {
-        const button = document.querySelector('[aria-label="归档 Fixture Legacy Memory Adapter"]')
+        const button = [...document.querySelectorAll('.catalog-component-link')].find(
+          (element) => element.textContent?.includes('Fixture Legacy Memory Adapter')
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(client, "document.body.innerText.includes('可解释的兼容性评估')")
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.component-detail button')].find(
+          (element) => element.textContent?.trim() === '归档组件'
+        )
         button?.focus()
         button?.click()
         return Boolean(button)
@@ -1616,12 +1871,14 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('组件已归档，历史引用保持可读') && document.body.innerText.includes('revision 7')",
+      "document.body.innerText.includes('组件已归档，历史引用保持可读') && document.body.innerText.includes('已归档')",
     )
     await evaluate(
       client,
       `(() => {
-        const button = document.querySelector('[aria-label="删除 Fixture Legacy Memory Adapter"]')
+        const button = [...document.querySelectorAll('.component-detail button')].find(
+          (element) => element.textContent?.trim() === '移除组件'
+        )
         button?.focus()
         button?.click()
         return Boolean(button)
@@ -1629,7 +1886,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "Boolean([...document.querySelectorAll('.project-component-list > li')].find((element) => element.textContent?.includes('Fixture Legacy Memory Adapter') && element.textContent?.includes('确认删除') && element.textContent?.includes('取消')))",
+      "document.body.innerText.includes('确认删除') && document.body.innerText.includes('取消')",
     )
     const componentDeleteConfirmationScreenshot = await client.send('Page.captureScreenshot', {
       format: 'png',
@@ -1642,10 +1899,7 @@ export async function runPackagedAppE2e(options = {}) {
     await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.project-component-list > li')].find(
-          (element) => element.textContent?.includes('Fixture Legacy Memory Adapter')
-        )
-        const button = [...(row?.querySelectorAll('button') ?? [])].find(
+        const button = [...document.querySelectorAll('.component-detail button')].find(
           (element) => element.textContent?.trim() === '取消'
         )
         button?.focus()
@@ -1661,35 +1915,31 @@ export async function runPackagedAppE2e(options = {}) {
     )
     if (
       !afterCancelledDelete.ok ||
-      afterCancelledDelete.data?.project?.revision !== 7 ||
+      afterCancelledDelete.data?.project?.revision !== portableBaseRevision + 7 ||
       !afterCancelledDelete.data?.project?.components?.some(({ id }) => id === adapterComponent.id)
     ) {
       throw new Error(`取消删除后项目发生变化：${JSON.stringify(afterCancelledDelete)}`)
     }
     await waitForExpression(
       client,
-      'Boolean(document.querySelector(\'[aria-label="删除 Fixture Legacy Memory Adapter"]\'))',
+      "Boolean([...document.querySelectorAll('.component-detail button')].find((element) => element.textContent?.trim() === '移除组件'))",
     )
     await evaluate(
       client,
       `(() => {
-        const button = document.querySelector('[aria-label="删除 Fixture Legacy Memory Adapter"]')
+        const button = [...document.querySelectorAll('.component-detail button')].find(
+          (element) => element.textContent?.trim() === '移除组件'
+        )
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(
-      client,
-      "Boolean([...document.querySelectorAll('.project-component-list > li')].find((element) => element.textContent?.includes('Fixture Legacy Memory Adapter') && element.textContent?.includes('确认删除')))",
-    )
+    await waitForExpression(client, "document.body.innerText.includes('确认删除')")
     await evaluate(
       client,
       `(() => {
-        const row = [...document.querySelectorAll('.project-component-list > li')].find(
-          (element) => element.textContent?.includes('Fixture Legacy Memory Adapter')
-        )
-        const button = [...(row?.querySelectorAll('button') ?? [])].find(
+        const button = [...document.querySelectorAll('.component-detail button')].find(
           (element) => element.textContent?.trim() === '确认删除'
         )
         button?.focus()
@@ -1699,7 +1949,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('未引用组件已删除') && document.body.innerText.includes('revision 8') && !document.body.innerText.includes('Fixture Legacy Memory Adapter')",
+      "document.body.innerText.includes('未引用组件已删除') && !document.getElementById('component-detail-panel')",
     )
     await evaluate(
       client,
@@ -1726,7 +1976,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     if (
       !afterComponentDelete.ok ||
-      afterComponentDelete.data?.project?.revision !== 8 ||
+      afterComponentDelete.data?.project?.revision !== portableBaseRevision + 8 ||
       afterComponentDelete.data?.project?.components?.some(
         ({ id }) => id === adapterComponent.id,
       ) ||
@@ -1737,20 +1987,52 @@ export async function runPackagedAppE2e(options = {}) {
       )
     }
 
+    await evaluate(client, `document.querySelector('nav button[aria-label="Agent"]')?.click()`)
+    await waitForExpression(client, "document.querySelector('h1')?.textContent === 'Agent'")
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.agent-row')].find(
+          (element) => element.textContent?.includes('Packaged CLI E2E')
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.querySelector('h1')?.textContent === 'Packaged CLI E2E'",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(client, "document.body.innerText.includes('Stack 草稿')")
+
     const workflowCreated = await packagedCli.invoke(
       'workflow',
       'create',
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '8',
+      String(portableBaseRevision + 8),
       '--name',
       'Packaged Workflow DAG',
       '--description',
       'CLI 创建，GUI 结构化读取',
     )
     const workflowId = workflowCreated.data?.project?.workflows?.[0]?.id
-    if (!workflowCreated.ok || workflowCreated.data?.project?.revision !== 9 || !workflowId) {
+    if (
+      !workflowCreated.ok ||
+      workflowCreated.data?.project?.revision !== portableBaseRevision + 9 ||
+      !workflowId
+    ) {
       throw new Error(`打包 CLI 创建 Workflow 失败：${JSON.stringify(workflowCreated)}`)
     }
     await packagedCli.invoke(
@@ -1760,7 +2042,7 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '9',
+      String(portableBaseRevision + 9),
       '--kind',
       'operation',
       '--name',
@@ -1775,7 +2057,7 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '10',
+      String(portableBaseRevision + 10),
       '--kind',
       'agent-version',
       '--name',
@@ -1786,7 +2068,7 @@ export async function runPackagedAppE2e(options = {}) {
     const workflowNodes = workflowWithNodes.data?.project?.workflows?.[0]?.nodes
     if (
       !workflowWithNodes.ok ||
-      workflowWithNodes.data?.project?.revision !== 11 ||
+      workflowWithNodes.data?.project?.revision !== portableBaseRevision + 11 ||
       workflowNodes?.length !== 2
     ) {
       throw new Error(`打包 CLI 添加 Workflow 节点失败：${JSON.stringify(workflowWithNodes)}`)
@@ -1800,9 +2082,9 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '11',
+      String(portableBaseRevision + 11),
     )
-    if (!workflowEdge.ok || workflowEdge.data?.project?.revision !== 12) {
+    if (!workflowEdge.ok || workflowEdge.data?.project?.revision !== portableBaseRevision + 12) {
       throw new Error(`打包 CLI 添加 Workflow 边失败：${JSON.stringify(workflowEdge)}`)
     }
     const cliCycleFailure = await packagedCli.invokeFailure(
@@ -1814,7 +2096,7 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '12',
+      String(portableBaseRevision + 12),
     )
     if (cliCycleFailure.ok !== false || cliCycleFailure.error?.code !== 'WORKFLOW_CYCLE') {
       throw new Error(`打包 CLI 未稳定拒绝 Workflow 循环：${JSON.stringify(cliCycleFailure)}`)
@@ -1826,18 +2108,128 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '12',
+      String(portableBaseRevision + 12),
     )
     if (
       !frozenWorkflow.ok ||
-      frozenWorkflow.data?.result?.project?.revision !== 13 ||
+      frozenWorkflow.data?.result?.project?.revision !== portableBaseRevision + 13 ||
       frozenWorkflow.data?.version?.versionNumber !== 1
     ) {
       throw new Error(`打包 CLI 冻结 Workflow Version 失败：${JSON.stringify(frozenWorkflow)}`)
     }
+    await evaluate(
+      client,
+      `(() => {
+        const overview = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === '概览'
+        )
+        overview?.click()
+        return Boolean(overview)
+      })()`,
+    )
+    await delay(100)
+    await evaluate(
+      client,
+      `(() => {
+        const stack = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        stack?.click()
+        return Boolean(stack)
+      })()`,
+    )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('界面已刷新到 revision 13') && document.body.innerText.includes('Packaged Workflow DAG') && document.body.innerText.includes('准备输入') && document.body.innerText.includes('Version 1')",
+      `document.body.innerText.includes('修订 ${portableBaseRevision + 14}') && document.body.innerText.includes('Packaged Workflow DAG') && document.body.innerText.includes('准备输入') && document.body.innerText.includes('Version 1')`,
+    )
+
+    const conflictingStackWrite = await packagedCli.invoke(
+      'stack',
+      'add',
+      importedComponent.id,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 13),
+    )
+    if (
+      !conflictingStackWrite.ok ||
+      conflictingStackWrite.data?.project?.revision !== portableBaseRevision + 14
+    ) {
+      throw new Error(`无法构造 revision 冲突：${JSON.stringify(conflictingStackWrite)}`)
+    }
+    await evaluate(
+      client,
+      `(() => {
+        const card = [...document.querySelectorAll('.workflow-card')].find(
+          (element) => element.textContent?.includes('Packaged Workflow DAG')
+        )
+        const button = card?.querySelector('.workflow-edges button[aria-label="删除 Workflow 连线"]')
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "Boolean(document.querySelector('.detail-feedback--error')) && document.body.innerText.includes('revision')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const alert = document.querySelector('.detail-feedback--error')
+        alert?.scrollIntoView({ block: 'center' })
+        alert?.querySelector('button')?.focus()
+        return Boolean(alert)
+      })()`,
+    )
+    await delay(150)
+    const revisionConflictScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    await writeFile(
+      projectConsistencyScreenshotPath,
+      Buffer.from(revisionConflictScreenshot.data, 'base64'),
+    )
+    const restoredConflictStack = await packagedCli.invoke(
+      'stack',
+      'remove',
+      importedComponent.id,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 14),
+    )
+    if (
+      !restoredConflictStack.ok ||
+      restoredConflictStack.data?.project?.revision !== portableBaseRevision + 15
+    ) {
+      throw new Error(`无法恢复 revision 冲突 fixture：${JSON.stringify(restoredConflictStack)}`)
+    }
+    await evaluate(
+      client,
+      `(() => {
+        const overview = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === '概览'
+        )
+        overview?.click()
+        return Boolean(overview)
+      })()`,
+    )
+    await delay(100)
+    await evaluate(
+      client,
+      `(() => {
+        const stack = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        stack?.click()
+        return Boolean(stack)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      `document.body.innerText.includes('修订 ${portableBaseRevision + 16}')`,
     )
     await evaluate(
       client,
@@ -1924,7 +2316,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('DAG 连线已删除') && document.body.innerText.includes('revision 14')",
+      `document.body.innerText.includes('DAG 连线已删除') && document.body.innerText.includes('revision ${portableBaseRevision + 16}')`,
     )
     const afterGuiWorkflowEdit = await packagedCli.invoke(
       'workflow',
@@ -1949,28 +2341,60 @@ export async function runPackagedAppE2e(options = {}) {
       '--project',
       packagedCli.fixturePath,
       '--revision',
-      '14',
+      String(portableBaseRevision + 16),
     )
-    if (!restoredWorkflowEdge.ok || restoredWorkflowEdge.data?.project?.revision !== 15) {
+    if (
+      !restoredWorkflowEdge.ok ||
+      restoredWorkflowEdge.data?.project?.revision !== portableBaseRevision + 17
+    ) {
       throw new Error(`CLI 恢复 Workflow 边失败：${JSON.stringify(restoredWorkflowEdge)}`)
     }
-    await waitForExpression(client, "document.body.innerText.includes('界面已刷新到 revision 15')")
+    await evaluate(
+      client,
+      `(() => {
+        const overview = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === '概览'
+        )
+        overview?.click()
+        return Boolean(overview)
+      })()`,
+    )
+    await delay(100)
+    await evaluate(
+      client,
+      `(() => {
+        const stack = [...document.querySelectorAll('[role="tab"]')].find(
+          (element) => element.textContent?.trim() === 'Stack'
+        )
+        stack?.click()
+        return Boolean(stack)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      `document.body.innerText.includes('修订 ${portableBaseRevision + 18}')`,
+    )
 
     await evaluate(
       client,
       `(() => {
+        document.querySelector('.workspace-identity')?.click()
+        return true
+      })()`,
+    )
+    await waitForExpression(client, "document.querySelector('h1')?.textContent === '项目设置'")
+    await evaluate(
+      client,
+      `(() => {
         const button = [...document.querySelectorAll('button')].find(
-          (element) => element.textContent?.trim() === '导出项目包'
+          (element) => element.textContent?.trim() === '导出可移植包'
         )
         button?.focus()
         button?.click()
         return Boolean(button)
       })()`,
     )
-    await waitForExpression(
-      client,
-      "document.body.innerText.includes('可移植包已导出') && document.body.innerText.includes('1 个 Workflow')",
-    )
+    await waitForExpression(client, "document.body.innerText.includes('已导出可移植包')")
     const finalGuiPackage = JSON.parse(await readFile(packagedGuiExportPath, 'utf8'))
     const finalCliExport = await packagedCli.invoke(
       'project',
@@ -1983,7 +2407,7 @@ export async function runPackagedAppE2e(options = {}) {
     const finalCliPackage = JSON.parse(await readFile(packagedCli.portablePackagePath, 'utf8'))
     if (
       !finalCliExport.ok ||
-      finalCliExport.data?.projectRevision !== 15 ||
+      finalCliExport.data?.projectRevision !== portableBaseRevision + 17 ||
       finalCliExport.data?.workflowCount !== 1 ||
       JSON.stringify(finalGuiPackage) !== JSON.stringify(finalCliPackage) ||
       finalGuiPackage.project?.workflows?.[0]?.versions?.length !== 1
@@ -2010,6 +2434,7 @@ export async function runPackagedAppE2e(options = {}) {
       dataLocationsScreenshotPath,
       sourceDiscoveryIdleScreenshotPath: sourceDiscoveryEvidence.idleScreenshotPath,
       sourceDiscoveryErrorScreenshotPath: sourceDiscoveryEvidence.errorScreenshotPath,
+      commandCenterScreenshotPath: commandCenterEvidence.commandCenterScreenshotPath,
       keychainScreenshotPath,
       runtimeScreenshotPath,
       runHistoryScreenshotPath,
@@ -2029,12 +2454,15 @@ export async function runPackagedAppE2e(options = {}) {
       workflowScreenshotPath,
       workflowCycleScreenshotPath,
       rendererBoundary,
+      reachableNavigation,
+      accessibilityTree,
       persistedPreferences,
       settingsCopy,
       capabilityCopy,
       remediationCopy,
       demoFeedbackLayout,
       sourceDiscoveryFailureCopy: sourceDiscoveryEvidence.failureCopy,
+      commandCenterState: commandCenterEvidence.state,
       lifecycleErrorCopy,
       runHistoryFailureCopy,
       experimentMatrixState: experimentEvidence.state,
@@ -2058,6 +2486,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`DATA_LOCATIONS_SCREENSHOT ${result.dataLocationsScreenshotPath}`)
       console.log(`SOURCE_DISCOVERY_IDLE_SCREENSHOT ${result.sourceDiscoveryIdleScreenshotPath}`)
       console.log(`SOURCE_DISCOVERY_ERROR_SCREENSHOT ${result.sourceDiscoveryErrorScreenshotPath}`)
+      console.log(`COMMAND_CENTER_SCREENSHOT ${result.commandCenterScreenshotPath}`)
       console.log(`KEYCHAIN_SCREENSHOT ${result.keychainScreenshotPath}`)
       console.log(`RUNTIME_SCREENSHOT ${result.runtimeScreenshotPath}`)
       console.log(`RUN_HISTORY_SCREENSHOT ${result.runHistoryScreenshotPath}`)
@@ -2084,9 +2513,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`PACKAGED_PROJECT_FINAL_REVISION ${result.packagedCli.finalRevision}`)
       console.log(`PACKAGED_PROJECT_PACKAGE_FORMAT ${result.packagedCli.packageFormatVersion}`)
       console.log('RENDERER_NODE DISABLED')
+      console.log(`NAVIGATION_REACHABILITY VERIFIED (${result.reachableNavigation.length})`)
+      console.log(
+        `PACKAGED_ACCESSIBILITY_TREE VERIFIED (${result.accessibilityTree.buttonCount} buttons, ${result.accessibilityTree.unnamedButtons} unnamed)`,
+      )
       console.log('CHINESE_SETTINGS VERIFIED')
       console.log('DATA_LOCATION_BOUNDARIES VERIFIED')
       console.log('SOURCE_DISCOVERY_STATE_COVERAGE VERIFIED')
+      console.log('WORKSPACE_COMMAND_CENTER VERIFIED')
       console.log('PERSISTED_UI_PREFERENCES VERIFIED')
       console.log('TRUSTED_HYBRID_RUNTIME VERIFIED')
       console.log('RUN_HISTORY_OBSERVABILITY VERIFIED')

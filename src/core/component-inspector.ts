@@ -21,6 +21,28 @@ const MAX_TREE_ENTRIES = 400
 const MAX_TREE_DEPTH = 4
 const manifestNames = ['agent-stack.component.json', 'component.json'] as const
 
+export function sanitizeGitRemote(value: string | null): string | null {
+  const candidate = value?.trim()
+  if (!candidate || candidate.length > 2_000) return null
+  const scp = candidate.includes('://')
+    ? null
+    : /^(?:[^@\s]+@)?([A-Za-z0-9.-]+):([^\s]+)$/.exec(candidate)
+  if (scp?.[1] && scp[2] && !path.isAbsolute(candidate)) {
+    return `ssh://${scp[1]}/${scp[2].replace(/^\/+/, '')}`
+  }
+  try {
+    const url = new URL(candidate)
+    if (!['http:', 'https:', 'ssh:', 'git:'].includes(url.protocol) || !url.hostname) return null
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 export const componentInspectionSchema = z
   .object({
     source: componentSourceSnapshotSchema,
@@ -105,11 +127,12 @@ async function inspectGit(root: string) {
       return null
     }
   }
-  const [commit, remote, statusText] = await Promise.all([
+  const [commit, rawRemote, statusText] = await Promise.all([
     run(['rev-parse', 'HEAD']),
     run(['remote', 'get-url', 'origin']),
     run(['status', '--porcelain=v1', '--untracked-files=normal']),
   ])
+  const remote = sanitizeGitRemote(rawRemote)
   let statusValue: 'clean' | 'modified' | 'untracked' | 'unavailable' = 'unavailable'
   if (statusText !== null) {
     if (statusText.length === 0) statusValue = 'clean'

@@ -1,0 +1,968 @@
+{
+  "contractVersion": 1,
+  "stateDimensions": [
+    "empty",
+    "loading",
+    "success",
+    "failure",
+    "cancel",
+    "conflict",
+    "external-refresh",
+    "keyboard"
+  ],
+  "evidenceCatalog": {
+    "project-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/StudioProjectView.tsx",
+          "contains": "!project ?"
+        },
+        {
+          "path": "src/renderer/src/App.test.tsx",
+          "contains": "shows both local starting paths in the empty state"
+        }
+      ]
+    },
+    "project-loading": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/StudioProjectView.tsx",
+          "contains": "aria-label=\"\u6b63\u5728\u8f7d\u5165\u9879\u76ee\u8bbe\u7f6e\""
+        },
+        {
+          "path": "src/renderer/src/components/StudioProjectView.test.tsx",
+          "contains": "secondary settings view"
+        }
+      ]
+    },
+    "project-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/projects/studio-project-service.test.ts",
+          "contains": "GUI/CLI consistency"
+        },
+        {
+          "path": "scripts/e2e-packaged-app.mjs",
+          "contains": "PACKAGED_GUI_CLI_BIDIRECTIONAL VERIFIED"
+        }
+      ]
+    },
+    "project-failure": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/StudioProjectView.test.tsx",
+          "contains": "exposes failures"
+        }
+      ]
+    },
+    "project-cancel": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/StudioProjectView.test.tsx",
+          "contains": "reports cancellation"
+        }
+      ]
+    },
+    "project-conflict": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/core/project-store.test.ts",
+          "contains": "rejects a stale revision"
+        },
+        {
+          "path": "src/core/project-store.test.ts",
+          "contains": "revision"
+        }
+      ]
+    },
+    "project-external": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/StudioProjectView.test.tsx",
+          "contains": "refreshes external modifications"
+        },
+        {
+          "path": "scripts/e2e-packaged-app.mjs",
+          "contains": "PROJECT_CONSISTENCY_SCREENSHOT"
+        }
+      ]
+    },
+    "project-keyboard": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/StudioProjectView.test.tsx",
+          "contains": "supports keyboard project switching"
+        }
+      ]
+    },
+    "agent-empty": {
+      "kind": "verified",
+      "references": [{ "path": "src/renderer/src/App.test.tsx", "contains": "empty state" }]
+    },
+    "agent-loading": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/App.tsx", "contains": "loading-state" },
+        { "path": "src/renderer/src/App.test.tsx", "contains": "creates an Agent" }
+      ]
+    },
+    "agent-success": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/App.test.tsx", "contains": "duplicates and archives an Agent" },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "AGENT_LIFECYCLE VERIFIED" }
+      ]
+    },
+    "agent-failure": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/App.test.tsx", "contains": "keeps the failure contextual" }
+      ]
+    },
+    "agent-cancel": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/App.test.tsx", "contains": "cancels permanent deletion inline" }
+      ]
+    },
+    "agent-conflict": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/persistence/agent-repository.test.ts",
+          "contains": "protects every historical reference"
+        },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "lifecycleErrorCopy" }
+      ]
+    },
+    "agent-external": {
+      "kind": "boundary",
+      "rationale": "Agent \u7684\u672c\u673a\u8eab\u4efd\u4e0e\u9879\u76ee\u5f15\u7528\u7531 Main/SQLite \u5355\u5199\u5165\uff1b\u53ef\u643a\u5185\u5bb9\u7684\u5916\u90e8\u4fee\u6539\u5728\u5f53\u524d\u9879\u76ee\u65c5\u7a0b\u9a8c\u8bc1\u3002",
+      "references": [
+        {
+          "path": "src/main/persistence/agent-repository.test.ts",
+          "contains": "archives and restores"
+        },
+        { "path": "src/renderer/src/App.test.tsx", "contains": "reads it back into the list" }
+      ]
+    },
+    "agent-keyboard": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/App.test.tsx", "contains": "keyboard-reachable detail actions" }
+      ]
+    },
+    "component-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ComponentCatalogView.test.tsx",
+          "contains": "local empty state"
+        }
+      ]
+    },
+    "component-loading": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/ComponentCatalogView.tsx", "contains": "aria-busy" },
+        {
+          "path": "src/renderer/src/components/ComponentCatalogView.test.tsx",
+          "contains": "after the catalog finishes loading"
+        }
+      ]
+    },
+    "component-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/projects/studio-project-service.test.ts",
+          "contains": "immediately selectable"
+        },
+        {
+          "path": "scripts/e2e-packaged-app.mjs",
+          "contains": "PROJECT_COMPONENT_LIFECYCLE VERIFIED"
+        }
+      ]
+    },
+    "component-failure": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ComponentCatalogView.test.tsx",
+          "contains": "failures contextual and retryable"
+        }
+      ]
+    },
+    "component-cancel": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ComponentCatalogView.test.tsx",
+          "contains": "cancelled import unchanged"
+        }
+      ]
+    },
+    "component-conflict": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/core/studio-core.test.ts",
+          "contains": "protects current plus historical references"
+        },
+        { "path": "src/core/studio-core.test.ts", "contains": "COMPONENT_IN_USE" }
+      ]
+    },
+    "component-external": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/projects/studio-project-service.test.ts",
+          "contains": "reports later CLI changes"
+        }
+      ]
+    },
+    "component-keyboard": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ComponentCatalogView.test.tsx",
+          "contains": "from the keyboard"
+        }
+      ]
+    },
+    "run-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/RunsView.test.tsx",
+          "contains": "useful empty state"
+        }
+      ]
+    },
+    "run-loading": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/RunsView.tsx", "contains": "aria-busy" },
+        { "path": "src/renderer/src/components/RunsView.test.tsx", "contains": "exposes events" }
+      ]
+    },
+    "run-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/RunsView.test.tsx",
+          "contains": "starts from the keyboard"
+        },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "TRUSTED_HYBRID_RUNTIME VERIFIED" }
+      ]
+    },
+    "run-failure": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/RunsView.test.tsx",
+          "contains": "failed historical Run"
+        },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "RUN_HISTORY_OBSERVABILITY VERIFIED" }
+      ]
+    },
+    "run-cancel": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/RunsView.test.tsx",
+          "contains": "cancels an active Run"
+        }
+      ]
+    },
+    "run-conflict": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/main/runs/run-service.test.ts", "contains": "Adapter" },
+        { "path": "src/renderer/src/components/RunsView.test.tsx", "contains": "Experiment Drift" }
+      ]
+    },
+    "run-external": {
+      "kind": "boundary",
+      "rationale": "Run/Receipt/Artifact \u662f Runtime \u5b50\u8fdb\u7a0b\u548c Main \u7ba1\u7406\u7684\u8fd0\u884c\u8bb0\u5f55\uff0c\u4e0d\u628a\u5916\u90e8\u6587\u4ef6\u6539\u5199\u5f53\u4f5c\u53ef\u7f16\u8f91\u4e8b\u5b9e\u3002",
+      "references": [
+        { "path": "src/main/runs/run-service.test.ts", "contains": "Run record" },
+        {
+          "path": "src/main/runtime/runtime-controller.test.ts",
+          "contains": "timed out after cleanup"
+        }
+      ]
+    },
+    "run-keyboard": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/RunsView.test.tsx",
+          "contains": "starts from the keyboard"
+        }
+      ]
+    },
+    "experiment-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "teaches the empty state"
+        }
+      ]
+    },
+    "experiment-loading": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/ExperimentsView.tsx", "contains": "aria-busy" },
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "starts, cancels"
+        }
+      ]
+    },
+    "experiment-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "summarizes, filters"
+        },
+        {
+          "path": "scripts/e2e-packaged-app.mjs",
+          "contains": "EXPERIMENT_MATRIX_OBSERVABILITY VERIFIED"
+        }
+      ]
+    },
+    "experiment-failure": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/ExperimentsView.test.tsx", "contains": "failure" },
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "partial matrix"
+        }
+      ]
+    },
+    "experiment-cancel": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/ExperimentsView.test.tsx", "contains": "cancels" }
+      ]
+    },
+    "experiment-conflict": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/main/experiments/experiment-service.test.ts", "contains": "drift" },
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "reproduction evidence"
+        }
+      ]
+    },
+    "experiment-external": {
+      "kind": "boundary",
+      "rationale": "Experiment \u5b9a\u4e49\u548c cell \u7ed3\u679c\u662f SQLite \u8fd0\u884c\u8bb0\u5f55\uff0c\u4e0d\u63a5\u53d7\u5916\u90e8\u6587\u4ef6\u7f16\u8f91\uff1bDrift \u901a\u8fc7\u9879\u76ee revision \u663e式投影。",
+      "references": [
+        { "path": "src/main/experiments/experiment-service.test.ts", "contains": "drift" },
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "reproduction evidence"
+        }
+      ]
+    },
+    "experiment-keyboard": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/ExperimentsView.test.tsx",
+          "contains": "from the keyboard"
+        }
+      ]
+    },
+    "discovery-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "successful empty result"
+        },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "source-discovery-idle" }
+      ]
+    },
+    "discovery-loading": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "in-flight search"
+        }
+      ]
+    },
+    "discovery-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "creates a review-required handoff"
+        }
+      ]
+    },
+    "discovery-failure": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "keeps an invalid query local"
+        },
+        {
+          "path": "scripts/e2e-packaged-app.mjs",
+          "contains": "SOURCE_DISCOVERY_STATE_COVERAGE VERIFIED"
+        }
+      ]
+    },
+    "discovery-cancel": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "cancels an in-flight search with Escape"
+        }
+      ]
+    },
+    "discovery-conflict": {
+      "kind": "boundary",
+      "rationale": "\u53d1\u73b0\u53ea\u8bfb\u516c\u5f00\u5143\u6570\u636e\u4e14\u96f6\u6301\u4e45\u5316\uff0c\u6ca1\u6709 revision \u53ef\u53d1\u751f\u5199\u5165\u51b2\u7a81\u3002",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "without downloading"
+        },
+        {
+          "path": "src/main/discovery/discovery-service.test.ts",
+          "contains": "without executing repository commands"
+        }
+      ]
+    },
+    "discovery-external": {
+      "kind": "boundary",
+      "rationale": "发现查询不读写本地项目文件，外部修改由当前项目旅程负责刷新。",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "only after submission"
+        },
+        { "path": "src/main/discovery/discovery-service.test.ts", "contains": "query" }
+      ]
+    },
+    "discovery-keyboard": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SourceDiscoveryView.test.tsx",
+          "contains": "returns keyboard focus"
+        }
+      ]
+    },
+    "maintenance-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SecretReferencesPanel.test.tsx",
+          "contains": "restored missing status"
+        }
+      ]
+    },
+    "maintenance-loading": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SettingsView.tsx",
+          "contains": "\u6b63\u5728\u8bfb\u53d6\u672c\u5730\u6570\u636e\u72b6\u6001"
+        },
+        {
+          "path": "src/renderer/src/components/SettingsView.test.tsx",
+          "contains": "creates a verified backup"
+        }
+      ]
+    },
+    "maintenance-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SettingsView.test.tsx",
+          "contains": "creates a verified backup"
+        },
+        {
+          "path": "src/renderer/src/components/SecretReferencesPanel.test.tsx",
+          "contains": "opens native secure input"
+        }
+      ]
+    },
+    "maintenance-failure": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/maintenance/data-maintenance-service.test.ts",
+          "contains": "only accepts allowlisted"
+        },
+        { "path": "src/renderer/src/components/SettingsView.tsx", "contains": "role=\"alert\"" }
+      ]
+    },
+    "maintenance-cancel": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SecretReferencesPanel.test.tsx",
+          "contains": "native secure input is cancelled"
+        },
+        {
+          "path": "src/renderer/src/components/SettingsView.test.tsx",
+          "contains": "explicit confirmation"
+        }
+      ]
+    },
+    "maintenance-conflict": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/maintenance/data-maintenance-service.test.ts",
+          "contains": "stages and applies a restore"
+        },
+        {
+          "path": "src/renderer/src/components/SettingsView.test.tsx",
+          "contains": "staging a restore"
+        }
+      ]
+    },
+    "maintenance-external": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/main/maintenance/data-maintenance-service.test.ts",
+          "contains": "automatic rollback backup"
+        },
+        {
+          "path": "src/renderer/src/components/SettingsView.test.tsx",
+          "contains": "stable storage"
+        }
+      ]
+    },
+    "maintenance-keyboard": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/SettingsView.test.tsx",
+          "contains": "from the keyboard"
+        },
+        {
+          "path": "src/renderer/src/components/SecretReferencesPanel.test.tsx",
+          "contains": "inline delete confirmation"
+        }
+      ]
+    },
+    "command-empty": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/CommandPalette.test.tsx",
+          "contains": "covers empty"
+        }
+      ]
+    },
+    "command-loading": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/CommandPalette.tsx", "contains": "aria-busy" },
+        { "path": "src/renderer/src/App.test.tsx", "contains": "summary failures non-blocking" }
+      ]
+    },
+    "command-success": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/CommandPalette.test.tsx",
+          "contains": "executes the selected result"
+        },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "WORKSPACE_COMMAND_CENTER VERIFIED" }
+      ]
+    },
+    "command-failure": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/components/CommandPalette.test.tsx", "contains": "failure" }
+      ]
+    },
+    "command-cancel": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/components/CommandPalette.test.tsx",
+          "contains": "Escape cancellation"
+        }
+      ]
+    },
+    "command-conflict": {
+      "kind": "boundary",
+      "rationale": "\u547d\u4ee4\u4e2d\u5fc3\u53ea\u8bfb\u672c\u5730聚合并只执行固定应用导航，不提交 revision \u5199\u5165。",
+      "references": [
+        {
+          "path": "src/renderer/src/components/CommandPalette.test.tsx",
+          "contains": "searches local metadata"
+        },
+        { "path": "src/core/command-center.test.ts", "contains": "actions and local entities" }
+      ]
+    },
+    "command-external": {
+      "kind": "verified",
+      "references": [
+        {
+          "path": "src/renderer/src/App.test.tsx",
+          "contains": "real Studio project and active Run"
+        },
+        {
+          "path": "src/renderer/src/components/StudioProjectView.test.tsx",
+          "contains": "refreshes external modifications"
+        }
+      ]
+    },
+    "command-keyboard": {
+      "kind": "verified",
+      "references": [
+        { "path": "src/renderer/src/App.test.tsx", "contains": "Command-K" },
+        { "path": "scripts/e2e-packaged-app.mjs", "contains": "commandCenterState" }
+      ]
+    }
+  },
+  "flows": [
+    {
+      "id": "FLOW-PROJECT",
+      "name": "\u9879目设置：创建、打开、导出与双向同步",
+      "requirementIds": ["LC-003", "LC-056", "LC-063", "LC-064", "LC-065"],
+      "states": {
+        "empty": "project-empty",
+        "loading": "project-loading",
+        "success": "project-success",
+        "failure": "project-failure",
+        "cancel": "project-cancel",
+        "conflict": "project-conflict",
+        "external-refresh": "project-external",
+        "keyboard": "project-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-AGENT",
+      "name": "Agent \u521b建、复制、归档、恢复与删除保护",
+      "requirementIds": ["LC-005", "LC-006", "LC-008", "LC-009", "LC-010", "LC-011", "LC-012"],
+      "states": {
+        "empty": "agent-empty",
+        "loading": "agent-loading",
+        "success": "agent-success",
+        "failure": "agent-failure",
+        "cancel": "agent-cancel",
+        "conflict": "agent-conflict",
+        "external-refresh": "agent-external",
+        "keyboard": "agent-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-COMPONENT",
+      "name": "组件库导入与 Agent 组装、Owner、兼容性、Workflow 版本化",
+      "requirementIds": [
+        "LC-018",
+        "LC-023",
+        "LC-025",
+        "LC-026",
+        "LC-027",
+        "LC-028",
+        "LC-029",
+        "LC-030",
+        "LC-032",
+        "LC-033"
+      ],
+      "states": {
+        "empty": "component-empty",
+        "loading": "component-loading",
+        "success": "component-success",
+        "failure": "component-failure",
+        "cancel": "component-cancel",
+        "conflict": "component-conflict",
+        "external-refresh": "component-external",
+        "keyboard": "component-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-RUN",
+      "name": "\u56db种受信任模式、Run 终态、Artifact 与 Receipt",
+      "requirementIds": [
+        "LC-034",
+        "LC-035",
+        "LC-039",
+        "LC-040",
+        "LC-041",
+        "LC-042",
+        "LC-043",
+        "LC-044"
+      ],
+      "states": {
+        "empty": "run-empty",
+        "loading": "run-loading",
+        "success": "run-success",
+        "failure": "run-failure",
+        "cancel": "run-cancel",
+        "conflict": "run-conflict",
+        "external-refresh": "run-external",
+        "keyboard": "run-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-EXPERIMENT",
+      "name": "Experiment \u77e9阵、部分结果、指标与基线对比",
+      "requirementIds": ["LC-045", "LC-046", "LC-047", "LC-048", "LC-049"],
+      "states": {
+        "empty": "experiment-empty",
+        "loading": "experiment-loading",
+        "success": "experiment-success",
+        "failure": "experiment-failure",
+        "cancel": "experiment-cancel",
+        "conflict": "experiment-conflict",
+        "external-refresh": "experiment-external",
+        "keyboard": "experiment-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-DISCOVERY",
+      "name": "\u516c开来源发现、失败恢复与安全交接",
+      "requirementIds": ["LC-018", "LC-019", "LC-020", "LC-021", "LC-022"],
+      "states": {
+        "empty": "discovery-empty",
+        "loading": "discovery-loading",
+        "success": "discovery-success",
+        "failure": "discovery-failure",
+        "cancel": "discovery-cancel",
+        "conflict": "discovery-conflict",
+        "external-refresh": "discovery-external",
+        "keyboard": "discovery-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-MAINTENANCE",
+      "name": "\u5907份、恢复、稳定路径、卸载与 Keychain \u5f15用",
+      "requirementIds": ["LC-068", "LC-069", "LC-074", "LC-075", "LC-076", "LC-077", "LC-078"],
+      "states": {
+        "empty": "maintenance-empty",
+        "loading": "maintenance-loading",
+        "success": "maintenance-success",
+        "failure": "maintenance-failure",
+        "cancel": "maintenance-cancel",
+        "conflict": "maintenance-conflict",
+        "external-refresh": "maintenance-external",
+        "keyboard": "maintenance-keyboard"
+      }
+    },
+    {
+      "id": "FLOW-COMMAND",
+      "name": "\u5de5作区摘要、\u2318K \u5168局搜索、实体直达与一级导航",
+      "requirementIds": ["LC-085", "LC-086", "LC-087", "LC-096"],
+      "states": {
+        "empty": "command-empty",
+        "loading": "command-loading",
+        "success": "command-success",
+        "failure": "command-failure",
+        "cancel": "command-cancel",
+        "conflict": "command-conflict",
+        "external-refresh": "command-external",
+        "keyboard": "command-keyboard"
+      }
+    }
+  ],
+  "screenshots": [
+    {
+      "id": "SHOT-SETTINGS",
+      "path": "artifacts/packaged-app-e2e.png",
+      "flowId": "FLOW-MAINTENANCE",
+      "state": "success",
+      "producerToken": "SCREENSHOT"
+    },
+    {
+      "id": "SHOT-PREFERENCES",
+      "path": "artifacts/packaged-app-e2e-preferences.png",
+      "flowId": "FLOW-COMMAND",
+      "state": "success",
+      "producerToken": "PREFERENCES_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-DATA-LOCATIONS",
+      "path": "artifacts/packaged-app-e2e-data-locations.png",
+      "flowId": "FLOW-MAINTENANCE",
+      "state": "success",
+      "producerToken": "DATA_LOCATIONS_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-SOURCE-EMPTY",
+      "path": "artifacts/packaged-app-e2e-source-discovery-idle.png",
+      "flowId": "FLOW-DISCOVERY",
+      "state": "empty",
+      "producerToken": "SOURCE_DISCOVERY_IDLE_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-SOURCE-FAILURE",
+      "path": "artifacts/packaged-app-e2e-source-discovery-validation-error.png",
+      "flowId": "FLOW-DISCOVERY",
+      "state": "failure",
+      "producerToken": "SOURCE_DISCOVERY_ERROR_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-COMMAND",
+      "path": "artifacts/packaged-app-e2e-command-center.png",
+      "flowId": "FLOW-COMMAND",
+      "state": "keyboard",
+      "producerToken": "COMMAND_CENTER_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-KEYCHAIN-EMPTY",
+      "path": "artifacts/packaged-app-e2e-keychain.png",
+      "flowId": "FLOW-MAINTENANCE",
+      "state": "empty",
+      "producerToken": "KEYCHAIN_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-RUNTIME",
+      "path": "artifacts/packaged-app-e2e-runtime.png",
+      "flowId": "FLOW-RUN",
+      "state": "success",
+      "producerToken": "RUNTIME_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-RUN-FAILURE",
+      "path": "artifacts/packaged-app-e2e-run-timeout-history.png",
+      "flowId": "FLOW-RUN",
+      "state": "failure",
+      "producerToken": "RUN_HISTORY_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-EXPERIMENT-PARTIAL",
+      "path": "artifacts/packaged-app-e2e-experiment-partial-matrix.png",
+      "flowId": "FLOW-EXPERIMENT",
+      "state": "cancel",
+      "producerToken": "EXPERIMENT_MATRIX_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-EXPERIMENT-BASELINE",
+      "path": "artifacts/packaged-app-e2e-experiment-relative-baseline.png",
+      "flowId": "FLOW-EXPERIMENT",
+      "state": "success",
+      "producerToken": "EXPERIMENT_COMPARISON_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-AGENT-STATUS",
+      "path": "artifacts/packaged-app-e2e-agent-status.png",
+      "flowId": "FLOW-AGENT",
+      "state": "success",
+      "producerToken": "AGENT_STATUS_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-COMPONENT-DETAIL",
+      "path": "artifacts/packaged-app-e2e-component-detail.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "success",
+      "producerToken": "COMPONENT_DETAIL_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-CAPABILITIES",
+      "path": "artifacts/packaged-app-e2e-capabilities.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "success",
+      "producerToken": "CAPABILITY_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-ADAPTER",
+      "path": "artifacts/packaged-app-e2e-adapter-remediation.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "conflict",
+      "producerToken": "ADAPTER_REMEDIATION_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-AGENT-LIFECYCLE",
+      "path": "artifacts/packaged-app-e2e-agent-lifecycle.png",
+      "flowId": "FLOW-AGENT",
+      "state": "conflict",
+      "producerToken": "AGENT_LIFECYCLE_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-PROJECT-EXTERNAL",
+      "path": "artifacts/packaged-app-e2e-project-consistency.png",
+      "flowId": "FLOW-PROJECT",
+      "state": "external-refresh",
+      "producerToken": "PROJECT_CONSISTENCY_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-PROJECT-REMEDIATION",
+      "path": "artifacts/packaged-app-e2e-project-adapter-remediation.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "conflict",
+      "producerToken": "PROJECT_REMEDIATION_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-COMPONENT-CANCEL",
+      "path": "artifacts/packaged-app-e2e-component-delete-confirmation.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "cancel",
+      "producerToken": "COMPONENT_DELETE_CONFIRMATION_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-COMPONENT-LIFECYCLE",
+      "path": "artifacts/packaged-app-e2e-component-lifecycle.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "success",
+      "producerToken": "COMPONENT_LIFECYCLE_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-PORTABLE-EXPORT",
+      "path": "artifacts/packaged-app-e2e-portable-export.png",
+      "flowId": "FLOW-PROJECT",
+      "state": "success",
+      "producerToken": "PORTABLE_EXPORT_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-WORKFLOW",
+      "path": "artifacts/packaged-app-e2e-workflow-dag.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "success",
+      "producerToken": "WORKFLOW_DAG_SCREENSHOT"
+    },
+    {
+      "id": "SHOT-WORKFLOW-CONFLICT",
+      "path": "artifacts/packaged-app-e2e-workflow-cycle-error.png",
+      "flowId": "FLOW-COMPONENT",
+      "state": "conflict",
+      "producerToken": "WORKFLOW_CYCLE_SCREENSHOT"
+    }
+  ],
+  "validationCommands": [
+    "npm run format:check",
+    "npm run lint",
+    "npm run typecheck",
+    "npm run test",
+    "npm run build",
+    "npm run package:cli",
+    "npm run package:mac",
+    "npm run verify:mac-package",
+    "npm run test:e2e:packaged"
+  ],
+  "packageArtifacts": [
+    "release/mac-arm64/Agent Stack Studio.app",
+    "release/Agent Stack Studio-0.9.0-arm64.dmg",
+    "release/Agent Stack Studio-0.9.0-arm64.zip",
+    "release/release-dry-run-0.9.0-arm64.json"
+  ],
+  "allowedExternalBlocked": ["LC-055", "RR-026", "RR-027", "RR-028"]
+}

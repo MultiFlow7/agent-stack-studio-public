@@ -4,6 +4,22 @@ export const sourceProviderSchema = z.literal('github')
 export const discoverySortSchema = z.enum(['relevance', 'stars', 'forks', 'updated'])
 export const discoveryOrderSchema = z.enum(['desc', 'asc'])
 
+function isSafeGithubUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'https:' &&
+      ['github.com', 'www.github.com'].includes(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    )
+  } catch {
+    return false
+  }
+}
+
 export const sourceSearchInputSchema = z
   .object({
     provider: sourceProviderSchema,
@@ -18,7 +34,15 @@ export const sourceSearchInputSchema = z
 export const sourceLocatorInputSchema = z
   .object({
     provider: sourceProviderSchema,
-    locator: z.string().trim().min(3).max(512),
+    locator: z
+      .string()
+      .trim()
+      .min(3)
+      .max(512)
+      .refine(
+        (value) => !value.startsWith('https://') || isSafeGithubUrl(value),
+        'GitHub URL 不得包含凭证、查询参数或片段。',
+      ),
   })
   .strict()
 
@@ -43,8 +67,8 @@ export const discoveredRepositorySchema = z
     name: z.string().min(1),
     fullName: z.string().min(3),
     description: z.string().nullable(),
-    htmlUrl: z.url().refine((value) => new URL(value).hostname === 'github.com'),
-    cloneUrl: z.url().refine((value) => new URL(value).hostname === 'github.com'),
+    htmlUrl: z.url().refine(isSafeGithubUrl),
+    cloneUrl: z.url().refine(isSafeGithubUrl),
     defaultBranch: z.string().min(1),
     licenseSpdx: z.string().nullable(),
     language: z.string().nullable(),
@@ -100,10 +124,7 @@ export const sourceCancelResultSchema = z.object({ cancelled: z.boolean() }).str
 export const sourceClipboardInputSchema = z.object({ text: z.string().min(1).max(20_000) }).strict()
 export const sourceOpenUrlInputSchema = z
   .object({
-    url: z
-      .url()
-      .refine((value) => new URL(value).protocol === 'https:')
-      .refine((value) => ['github.com', 'www.github.com'].includes(new URL(value).hostname)),
+    url: z.url().refine(isSafeGithubUrl),
   })
   .strict()
 export const sourceActionResultSchema = z.object({ ok: z.literal(true) }).strict()

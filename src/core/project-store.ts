@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import {
   PROJECT_FILE_NAME,
@@ -29,6 +29,41 @@ function projectPath(inputPath: string): string {
 
 function backupPath(filePath: string): string {
   return `${filePath}.backup`
+}
+
+const DEAD_LOCK_GRACE_MS = 30_000
+const INVALID_LOCK_STALE_MS = 5 * 60_000
+
+function processIsAlive(pid: number): boolean {
+  if (pid === process.pid) return true
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+async function removeStaleLock(lockPath: string): Promise<boolean> {
+  try {
+    const [contents, metadata] = await Promise.all([readFile(lockPath, 'utf8'), stat(lockPath)])
+    let stale = Date.now() - metadata.mtimeMs >= INVALID_LOCK_STALE_MS
+    try {
+      const lock = JSON.parse(contents) as { pid?: unknown; createdAt?: unknown }
+      if (typeof lock.pid === 'number' && Number.isInteger(lock.pid) && lock.pid > 0) {
+        const createdAt =
+          typeof lock.createdAt === 'string' ? new Date(lock.createdAt).getTime() : metadata.mtimeMs
+        stale = Date.now() - createdAt >= DEAD_LOCK_GRACE_MS && !processIsAlive(lock.pid)
+      }
+    } catch {
+      // Invalid metadata is only removed after the longer mtime-based threshold.
+    }
+    if (!stale || (await readFile(lockPath, 'utf8')) !== contents) return false
+    await rm(lockPath)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function migrateProject(raw: unknown): { project: StudioProject; migrated: boolean } {
@@ -143,34 +178,65 @@ async function atomicWrite(
 
 async function acquireWriteLock(filePath: string): Promise<() => Promise<void>> {
   const lockPath = `${filePath}.lock`
-  let handle: Awaited<ReturnType<typeof open>> | undefined
-  try {
-    handle = await open(lockPath, 'wx', 0o600)
-    await handle.writeFile(
-      `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`,
-      'utf8',
-    )
-    await handle.sync()
-    const lockedHandle = handle
-    return async () => {
-      await lockedHandle.close()
-      await rm(lockPath, { force: true })
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let handle: Awaited<ReturnType<typeof open>> | undefined
+    try {
+      handle = await open(lockPath, 'wx', 0o600)
+      const token = randomUUID()
+      await handle.writeFile(
+        `${JSON.stringify({ pid: process.pid, token, createdAt: new Date().toISOString() })}\n`,
+        'utf8',
+      )
+      await handle.sync()
+      const lockedHandle = handle
+      let released = false
+      return async () => {
+        if (released) return
+        released = true
+        await lockedHandle.close()
+        let contents: string
+        try {
+          contents = await readFile(lockPath, 'utf8')
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+          throw error
+        }
+        let current: { token?: unknown }
+        try {
+          current = JSON.parse(contents) as { token?: unknown }
+        } catch {
+          return
+        }
+        if (current.token === token) await rm(lockPath, { force: true })
+      }
+    } catch (error) {
+      await handle?.close().catch(() => undefined)
+      if (handle) await rm(lockPath, { force: true })
+      if (
+        !handle &&
+        attempt === 0 &&
+        (error as NodeJS.ErrnoException).code === 'EEXIST' &&
+        (await removeStaleLock(lockPath))
+      ) {
+        continue
+      }
+      throw new StudioCoreError(
+        'REVISION_CONFLICT',
+        '另一个 Studio 进程正在写入项目，请重新读取后重试。',
+        {
+          cause: error,
+          details: { lockPath },
+          suggestedActions: [
+            {
+              command: 'studio project inspect --json',
+              description: '等待当前写入完成后重新读取。',
+            },
+          ],
+        },
+      )
     }
-  } catch (error) {
-    await handle?.close().catch(() => undefined)
-    if (handle) await rm(lockPath, { force: true })
-    throw new StudioCoreError(
-      'REVISION_CONFLICT',
-      '另一个 Studio 进程正在写入项目，请重新读取后重试。',
-      {
-        cause: error,
-        details: { lockPath },
-        suggestedActions: [
-          { command: 'studio project inspect --json', description: '等待当前写入完成后重新读取。' },
-        ],
-      },
-    )
   }
+  throw new Error('Project lock acquisition exhausted unexpectedly.')
 }
 
 export class ProjectStore {
@@ -184,7 +250,7 @@ export class ProjectStore {
     const release = await acquireWriteLock(filePath)
     try {
       try {
-        const existing = await this.read(rootPath)
+        const existing = await this.#readLocked(filePath, false)
         if (existing.project.id === project.id || existing.project.name === project.name)
           return existing
         throw new StudioCoreError('PROJECT_ALREADY_EXISTS', `${filePath} 已存在。`, {
@@ -210,8 +276,7 @@ export class ProjectStore {
     const filePath = projectPath(inputPath)
     try {
       const result = await parseFile(filePath)
-      if (result.migrated) await atomicWrite(filePath, result.project, true)
-      return { path: filePath, ...result, recovered: false }
+      if (!result.migrated) return { path: filePath, ...result, recovered: false }
     } catch (error) {
       if (
         !options.recover ||
@@ -220,6 +285,23 @@ export class ProjectStore {
       ) {
         throw error
       }
+    }
+    const release = await acquireWriteLock(filePath)
+    try {
+      return await this.#readLocked(filePath, options.recover ?? false)
+    } finally {
+      await release()
+    }
+  }
+
+  async #readLocked(filePath: string, recover: boolean): Promise<ProjectReadResult> {
+    try {
+      const result = await parseFile(filePath)
+      if (result.migrated) await atomicWrite(filePath, result.project, true)
+      return { path: filePath, ...result, recovered: false }
+    } catch (error) {
+      if (!recover || !(error instanceof StudioCoreError) || error.code === 'PROJECT_NOT_FOUND')
+        throw error
       try {
         const backup = await parseFile(backupPath(filePath))
         const preservedInvalidPath = `${filePath}.invalid-${Date.now()}`
@@ -259,7 +341,7 @@ export class ProjectStore {
     const filePath = projectPath(inputPath)
     const release = await acquireWriteLock(filePath)
     try {
-      const current = await this.read(inputPath, { recover: true })
+      const current = await this.#readLocked(filePath, true)
       if (current.project.revision !== expectedRevision) {
         throw new StudioCoreError('REVISION_CONFLICT', '项目已被其他进程修改，请重新读取后再试。', {
           details: { expectedRevision, actualRevision: current.project.revision },

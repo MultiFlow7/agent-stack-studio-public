@@ -291,3 +291,46 @@ Workflow 不与当前产品逻辑冲突。它属于执行控制层，而不是�
 - Preload 必须对搜索、检查、交接、取消、复制与打开 URL 的错误去除 Electron IPC 内部前缀；Renderer 不显示 `Error invoking remote method`。
 - packaged 证据不得依赖 GitHub 可用性：用首次安全空状态和本地输入校验失败证明中文边界、键盘焦点与恢复路径。真实 Provider 行为由 Adapter/Service/Renderer 自动化分层验证。
 - M25 不接收 Token、不新增 Provider、不持久化查询、不下载或执行仓库，也不改变项目、数据库、Runtime 或 CLI 项目协议。
+
+## 29. M26 工作区命令中心与统一状态
+
+- 顶栏必须显示当前 Studio 项目名称、revision 与验证状态；没有项目、项目阻断和外部修改都使用明确文字，不能继续显示固定占位工作区。
+- 顶栏 Run 状态必须来自已保存 Run 事实，区分活动、完成、需关注和无记录；点击状态可进入对应 Run 历史。
+- 全局搜索通过 `⌘K` 或顶栏按钮打开，只检索本机项目、Agent、Component、Run、Experiment 与白名单应用操作，不接受路径、SQL、密钥或网络查询。
+- 搜索结果必须支持完整键盘选择和实体直达；加载、无结果、失败与关闭都保留可访问语义和焦点边界。
+- 工作区摘要是既有项目与本机记录的只读聚合，不进入 SQLite、`.agent-stack`、Agent Stack Package、Runtime 消息或 CLI 项目协议。
+- Agent、Stack、Run、Experiment 与发布状态使用集中化中文词汇；状态始终以文字和图标表达，颜色只作辅助。
+
+## 30. M27 本地验收与可访问入口门禁
+
+- production 源码中的 TODO/FIXME、占位文案、死操作和测试专用成功旁路必须由自动检查拒绝；输入提示与最终包验收控制只能逐项分类。
+- 每个一级导航必须同时存在启用的 GUI 入口、实际 Renderer 分支和命令中心目的地，最终 `.app` 必须逐页打开并确认当前页面。
+- 最终 Renderer 可访问树必须包含 main/navigation landmarks，一级入口和应用级图标按钮必须有名称；可见按钮不得出现空名称。
+- 对比度、可见焦点、减少动态效果与 Dialog 键盘约束必须保留自动化证据；颜色不得成为状态的唯一表达。
+- 门禁只验证既有产品入口，不新增测试模式领域事实，也不放宽 Renderer、IPC、Runtime 或密钥边界。
+
+## 31. M28 最终证据台账
+
+- 97 条本地冻结需求和 39 条分发需求必须由同一解析器生成机器可核验报告，不另建第二份手工状态。
+- Studio Project、Agent、Component/Stack/Workflow、Runtime/Run、Experiment、来源发现、维护/Keychain 和命令中心必须逐条分类八种验收状态。
+- `boundary` 只允许表达只读、单写入或明确职责边界，必须有理由和自动化证据，不能代替缺失实现。
+- 中文截图是本地 Git-ignored 打包产物；公开仓库拒绝除已复核图标外的不透明二进制文件。
+- 最终 strict 验证必须同时检查零未完成需求、包路径、截图存在性、提交和公开 CI 证据。
+
+## 32. M29 稳定性与敏感信息
+
+- 重复的只读请求不得产生重复 IPC/Provider 工作；重复的发布、恢复、Keychain、取消和维护操作不得产生重复副作用或不同 Receipt。
+- 项目迁移、恢复和并发写入必须使用同一排他边界；活跃进程锁不得被误删，死亡进程锁只能在宽限期后回收。
+- GitHub、发布 Adapter、Keychain、安全输入和 Runtime 子进程必须有明确超时、输出上限、取消与强制清理路径。
+- 日志、工作区、Artifact、备份、恢复和导出默认仅当前用户可读写；备份目的地不得位于被复制的数据树内。
+- 凭证 URL、Authorization、Provider token、敏感查询参数和原始子进程输出不得进入项目文件、数据库、Receipt、Artifact、日志、CLI JSON 或 Renderer 错误。
+- 迟到的异步响应不得覆盖用户已切换后的 GUI 状态；文件监听、日志和退出清理异常不得导致主进程未捕获异常。
+
+## 33. M30 Agent-first 项目集成
+
+- Agent 是主入口：在同一页完成组件选择、Stack 排序、Owner 冲突决策、兼容性评估、Workflow 与不可变 Version 冻结，然后进入 Run、Experiment 或 Publish。
+- 组件库只管理当前项目的可用组件、来源、版本、Descriptor、兼容性、更新与移除；导入成功后 Agent 组装器必须立即可选。
+- `.agent-stack` 是 Component Descriptor、Stack、Owner 决策、兼容结论、Workflow 和不可变 Version 的唯一便携事实源。SQLite 只保留本机 Agent 身份/项目版本引用、Run、Experiment、Receipt 和密钥引用。
+- 当前项目在全局顶栏显示并可切换；路径、revision、完整性、备份恢复和导入导出收纳到次级“项目设置”，不再作为一级工作台。
+- 兼容性评估必须显示未检查、静态通过、需配置、需 Adapter、运行验证通过和不兼容，并附证据、阻断原因、建议动作、时间与方法。Descriptor 编辑不得自动提升证据等级。
+- 旧 SQLite Agent/Component 数据必须通过幂等、可恢复的 v9 迁移转为稳定项目/Version 引用；冲突、缺失、混合引用或较新格式必须显式拒绝，不得静默丢数据。

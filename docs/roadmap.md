@@ -308,3 +308,68 @@
 远程证据：实现提交 `1777dcd`，跨架构 Experiment 取消证据稳定化提交 `18e7ce1`、`bbfe384`；GitHub macOS CI run `32426869067` 在精确 head `bbfe3842e859cd8de79f1ca935fb1114b7f73b37` 上通过，包括 Intel x64 项目检查、应用打包、包验证、Source 状态 packaged E2E 和无凭证 release dry-run。
 
 CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍禁用时的跨架构 E2E 竞态，修复后由上述 run 验证；证据提交 `3d150fc` 的 run `32427694409` 和 `a90d8a5` 的 run `32428402546` 多次未分配 runner 且没有执行 step。用户确认可使用公开仓库后，为避免泄露早期提交作者邮箱，保留私有历史而不改写，以隐私门禁审计后的单提交快照建立公开 CI 镜像。私有 `f525c4c` 与公开 `f2b6e62` 共享 tree `055a13a70b08eb088ae2d63558514bf7b7a8b7c8`；公开 Intel CI run `32438973147` 通过完整项目检查、打包、包验证、packaged E2E 和无凭证 dry-run，M25 证据门禁由此关闭。
+
+## M26：工作区命令中心与统一状态词汇
+
+- Main 以只读服务组合 Studio Project、Agent 状态、Component 目录、Run 和 Experiment，不复制事实或引入迁移。
+- 顶栏显示真实项目/revision/验证状态与最近 Run，项目外部变化和活动 Run 触发更快刷新；摘要故障不阻断当前页面。
+- `⌘K` 命令面板只搜索本机元数据与固定白名单操作，支持加载、无结果、失败、焦点约束、上下选择、Enter 直达和 Escape 关闭。
+- Component、Run 与 Experiment 页面接收严格 UUID 目的地后打开完整详情；Agent 继续使用既有详情服务。
+- Agent、Stack、Run、Experiment、Publish、工作区与活动状态集中到同一 Renderer 词汇层，图标和文字始终伴随颜色。
+- packaged E2E 必须在真实 Hybrid Run 后验证工作区与 Run 状态、用 `⌘K` 找到并打开本机 Agent，并保存中文命令中心截图。
+
+完成条件：Core/Service/IPC/Preload/Renderer 与直达页面测试通过；最终 `.app` 输出 `WORKSPACE_COMMAND_CENTER VERIFIED`；隐私门禁、全套本地验证和公开 Intel CI 均成功。
+
+实现状态：78 个测试文件 / 259 项测试、生产构建、CLI、arm64/x64 DMG/ZIP、包验证和 packaged E2E 已在本机与公开 Intel CI 通过；最终项目 revision 15、GUI/CLI v2 包逐字一致，`artifacts/packaged-app-e2e-command-center.png` 已人工复核。
+
+远程证据：私有实现提交 `ef4961d` 与公开实现提交 `d1d374e` 共享 tree `dc5ad74015c9da7f27912ff4bd5a9b2d24c79396`；公开 GitHub macOS CI run `32442138733` 成功，完成 Intel x64 项目检查、应用打包、包验证、工作区命令中心 packaged E2E 与无凭证 release dry-run。
+
+## M27：本地验收、可访问树与断路门禁
+
+- 新增版本化验收分类，逐项记录 7 个一级入口、6 个输入提示和 2 组最终包控制的用途。
+- `npm run check` 自动拒绝 production TODO/FIXME/HACK、占位文案、死操作、未分类 harness 和 GUI/命令中心导航断裂。
+- 最终 `.app` 逐个聚焦并打开全部一级入口，确认页面标题与 `aria-current=page`。
+- Chromium Accessibility Tree 必须暴露 main/navigation landmarks、全局搜索和创建操作，所有可见按钮名称非空。
+- 保留现有对比度、焦点、减少动态效果和 Dialog 键盘契约；不增加业务协议或测试成功旁路。
+
+完成条件：源码门禁、verifier tests、最终 arm64/x64 包与 packaged E2E 通过，输出 `LOCAL_ACCEPTANCE_AUDIT VERIFIED`、`NAVIGATION_REACHABILITY VERIFIED (7)` 和 `PACKAGED_ACCESSIBILITY_TREE VERIFIED`。
+
+本地实现状态：120 个 production 源文件、7 个入口、6 个输入提示和 2 组 packaged harness 已分类，未处置项 0；最终 arm64 `.app` 显示 21 个可见按钮、0 个无名称按钮，7 个入口全部实际打开。
+
+远程证据：私有实现提交 `a52437c` 与公开实现提交 `ebf6bfd` 共享 tree `191c580716fe4901bd26798e4483ed7f8e29f940`；公开 GitHub macOS CI run `32444148841` 成功，完成 Intel x64 项目检查、应用打包、包验证、全入口/AX tree packaged E2E 与无凭证 release dry-run。
+
+## M28：最终证据台账与报告
+
+- 从两张冻结矩阵直接生成 136 条机器需求记录，拒绝删行、改号、非法状态或本地未完成项。
+- 8 条跨领域用户旅程逐条绑定空/加载/成功/失败/取消/冲突/外部刷新/键盘证据。
+- 23 张最终包中文截图绑定旅程、状态和 producer；它们只留在 Git-ignored 本地验收目录。
+- 公开仓库隐私门禁默认拒绝不透明二进制，只允许已复核应用图标。
+- 最终报告必须包含需求 ID、私有/公开提交、验证命令、包路径、截图路径和公开 CI。
+
+完成条件：`verify:evidence-ledger` 与 strict `verify:final-report` 通过；本地全套包验收与公开 Intel CI 成功；最终报告可从本地产物直接生成。
+
+实现状态：80 个测试文件 / 266 项测试全部通过；本地 arm64 `.app`、包内 CLI、DMG/ZIP、包验证、23 张中文截图和无凭证 dry-run 通过，报告 5 verified、3 skipped、2 disabled、0 blocked。`verify:evidence-ledger` 验证 136 条需求、8 条旅程和 23 个截图 producer。
+
+远程证据：私有实现提交 `2c9fdd9` 与公开实现提交 `7748351` 共享 tree `e3846498ce6d4621491f39ac1988e28f2a7cff96`；公开 GitHub macOS CI run `32446386099` 成功，完成 Intel x64 项目检查、应用打包、包验证、packaged E2E 和无凭证 release dry-run。
+
+## M29：稳定性、并发与敏感信息审计
+
+- 对空值、重复请求、并发、权限、超时、异常和敏感信息进行跨 Core/Main/Preload/Renderer/Runtime/CLI 审计。
+- 同一只读请求合并，写操作使只读请求失效；发布、维护、Keychain 与发现操作使用明确单航班或串行边界。
+- 项目迁移和恢复进入进程写锁，仅回收死亡进程的过期锁；重复 Run 取消、Runtime 停止和 Renderer 晚到响应保持幂等。
+- Keychain、发布 Adapter、GitHub 与 Runtime 子进程都有有界超时；异常不再保存远端或子进程原始错误。
+- 日志、工作区、Artifact、备份、恢复和导出使用私有权限；Runtime stdout/stderr 只记录字节数，不记录正文。
+- Git remote、Descriptor、公开来源 URL、CLI/IPC/Runtime 错误和结构化日志统一拒绝或净化凭证与敏感查询参数。
+
+完成条件：83 个测试文件 / 284 项测试、`npm run check`、CLI/macOS 打包、包验证、packaged E2E、公开快照隐私门禁和公开 Intel CI 全部通过；最终 `.app` 与包内 CLI 实际启动。本切片不增加数据库或项目格式迁移，不改变领域、IPC 或 Runtime 协议。
+
+## M30：Agent-first 项目一体化
+
+- 将 Stack、Owner、兼容性、Workflow 和 Version 冻结收敛到 Agent 主流程，项目管理降级为全局上下文与次级设置。
+- 以 `.agent-stack` 作为六类便携事实的唯一来源，SQLite v9 只保留稳定 Agent/项目/不可变 Version 引用和本机运行事实。
+- 为旧 SQLite Agent/Component 和历史项目增加幂等、可恢复、冲突拒绝的启动迁移。
+- 新增可解释兼容性评估，由 Core 给出证据、阻断原因、建议动作和安全验证边界；Descriptor 编辑不再等于人工确认。
+
+完成条件：导入后 Agent 立即可选、GUI↔CLI 一致、revision/外部修改/迁移恢复/未知代码不执行全部有自动证据；六个一级入口、最终 arm64 `.app`、包内 CLI、中文状态截图和公开 CI 通过。
+
+本地实现状态：85 个测试文件 / 286 项测试、`npm run check`、CLI/macOS 打包、包验证、真实 arm64 GUI 与包内 CLI 双向一致、revision 冲突、中文截图和无凭证 dry-run 均通过；证据台账覆盖 150 条需求、8 条旅程和 23 张截图。

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { AgentVersion } from '../../shared/agent-detail'
+import type { MaterializedAgentVersion } from '../../shared/agent-detail'
 import type { ComponentRecord } from '../../shared/component'
 import { publishPackageSchema, type PublishPackage } from '../../shared/publish'
 
@@ -8,7 +8,7 @@ function hash(value: unknown): string {
 }
 
 export function buildPublishPackage(input: {
-  version: AgentVersion
+  version: MaterializedAgentVersion
   components: ComponentRecord[]
 }): PublishPackage {
   const byId = new Map(input.components.map((component) => [component.id, component]))

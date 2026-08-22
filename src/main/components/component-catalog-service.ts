@@ -6,17 +6,28 @@ import {
 import { AppError } from '../../shared/errors'
 import type { AgentService } from '../agents/agent-service'
 import type { ComponentService } from './component-service'
+import type { StudioProjectService } from '../projects/studio-project-service'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
 
 export class ComponentCatalogService {
   readonly #agents: Pick<AgentService, 'get' | 'list'>
   readonly #components: Pick<ComponentService, 'getStack' | 'list'>
+  #projects: Pick<StudioProjectService, 'activeAgentId' | 'activeComposition'> | null
 
   constructor(options: {
     agents: Pick<AgentService, 'get' | 'list'>
     components: Pick<ComponentService, 'getStack' | 'list'>
+    projects?: Pick<StudioProjectService, 'activeAgentId' | 'activeComposition'>
   }) {
     this.#agents = options.agents
     this.#components = options.components
+    this.#projects = options.projects ?? null
+  }
+
+  connectProject(
+    projects: Pick<StudioProjectService, 'activeAgentId' | 'activeComposition'>,
+  ): void {
+    this.#projects = projects
   }
 
   list(): ComponentCatalogItem[] {
@@ -42,24 +53,47 @@ export class ComponentCatalogService {
             draftRevision: detail.draft.revision,
           }))
           .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
-        const affectedVersions = agentDetails
-          .flatMap((detail) =>
-            detail.versions
-              .filter((version) =>
+        const legacyAffectedVersions = agentDetails.flatMap((detail) =>
+          detail.versions
+            .filter(
+              (version) =>
+                !isProjectAgentVersionReference(version.snapshot) &&
                 version.snapshot.stack.components.some(
                   ({ componentId }) => componentId === component.id,
                 ),
-              )
-              .map((version) => ({
-                agentId: detail.agent.id,
-                agentName: detail.agent.name,
-                versionId: version.id,
-                versionNumber: version.versionNumber,
-                createdAt: version.createdAt,
-              })),
-          )
-          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+            )
+            .map((version) => ({
+              agentId: detail.agent.id,
+              agentName: detail.agent.name,
+              versionId: version.id,
+              versionNumber: version.versionNumber,
+              createdAt: version.createdAt,
+            })),
+        )
+        const activeAgentId = this.#projects?.activeAgentId()
+        const activeProject = activeAgentId
+          ? this.#projects?.activeComposition(activeAgentId)?.project
+          : null
+        const activeAgent = agentDetails.find(({ agent }) => agent.id === activeAgentId)
+        const projectAffectedVersions =
+          activeProject && activeAgent
+            ? activeProject.versions
+                .filter(({ snapshot }) => snapshot.components.some(({ id }) => id === component.id))
+                .map((version) => ({
+                  agentId: activeAgent.agent.id,
+                  agentName: activeAgent.agent.name,
+                  versionId: version.id,
+                  versionNumber: version.versionNumber,
+                  createdAt: version.createdAt,
+                }))
+            : []
+        const affectedVersions = [...legacyAffectedVersions, ...projectAffectedVersions].sort(
+          (left, right) => right.createdAt.localeCompare(left.createdAt),
+        )
         const validation = component.descriptor.compatibility.validation
+        const assessment = this.#projects
+          ?.activeComposition(activeAgentId ?? '')
+          ?.validation?.assessments?.find(({ componentId }) => componentId === component.id)
         return componentCatalogItemSchema.parse({
           component,
           usedByAgents,
@@ -68,6 +102,7 @@ export class ComponentCatalogService {
             validation === 'declared'
               ? null
               : { status: validation, recordedAt: component.updatedAt },
+          assessment: assessment ?? null,
         })
       }),
     )

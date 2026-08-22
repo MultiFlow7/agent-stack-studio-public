@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { copyFile, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   componentDescriptorSchema,
@@ -36,6 +36,11 @@ import {
   buildCompatibilityRemediationTasks,
   type CompatibilityRemediationTask,
 } from '../shared/remediation'
+import { assessComponentCompatibility } from '../shared/compatibility-assessment'
+import type { AgentDetail } from '../shared/agent-detail'
+import { isProjectAgentVersionReference } from '../shared/agent-detail'
+import type { ComponentRecord } from '../shared/component'
+import type { StackState } from '../shared/runtime-plan'
 
 export interface ProjectMutationOptions {
   expectedRevision?: number
@@ -55,7 +60,7 @@ function validationAction(code: ProjectValidation['issues'][number]['code']): st
     case 'OWNER_INVALID':
       return ['使用 studio stack owner set <capability> <component-id> 设置 Owner。']
     case 'COMPATIBILITY_UNKNOWN':
-      return ['更正 Component Descriptor，并把兼容性结论记录为用户确认或更高证据级别。']
+      return ['执行静态兼容性评估，按证据补全平台、入口、配置或 Adapter 契约。']
     case 'ADAPTER_UNVERIFIED':
       return ['先在受信环境完成契约测试和最小运行验证，再更新 Descriptor。']
     case 'SOURCE_DIRTY':
@@ -104,6 +109,134 @@ export class StudioCore {
 
   inspectProject(rootPath: string): Promise<ProjectReadResult> {
     return this.#store.read(rootPath, { recover: true })
+  }
+
+  async updateProjectMetadata(
+    rootPath: string,
+    input: Pick<StudioProject, 'name' | 'description'> & {
+      executionMode: StudioProject['stack']['executionMode']
+    },
+    options: ProjectMutationOptions = {},
+  ): Promise<ProjectReadResult> {
+    return this.#mutate(rootPath, options, (project) => ({
+      ...project,
+      name: input.name.trim(),
+      description: input.description,
+      stack: { ...project.stack, executionMode: input.executionMode },
+    }))
+  }
+
+  async migrateLegacyAgentProject(
+    rootPath: string,
+    detail: AgentDetail,
+    stack: StackState,
+    catalog: ComponentRecord[],
+  ): Promise<ProjectReadResult> {
+    const referencedIds = new Set([
+      ...stack.components.map(({ id }) => id),
+      ...detail.versions.flatMap((version) =>
+        isProjectAgentVersionReference(version.snapshot)
+          ? []
+          : version.snapshot.stack.components.map(({ componentId }) => componentId),
+      ),
+    ])
+    // The legacy catalog was global. Copy every descriptor into each migrated Agent project so
+    // no unassigned library entry is silently discarded when SQLite portable tables are retired.
+    const records = catalog
+    const missing = [...referencedIds].filter((id) => !records.some((record) => record.id === id))
+    if (missing.length) {
+      throw new StudioCoreError(
+        'COMPONENT_NOT_FOUND',
+        '历史 Agent 引用的组件记录不完整，已拒绝迁移。',
+        {
+          details: { missingComponentIds: missing },
+        },
+      )
+    }
+    const toProjectComponent = (record: ComponentRecord): ProjectComponent => ({
+      id: record.id,
+      descriptor: record.descriptor,
+      evidenceLevel: 'declared',
+      source: {
+        path: `legacy-sqlite:${record.id}`,
+        manifestPath: null,
+        readmePath: null,
+        licensePath: null,
+        git: { remote: null, commit: null, status: 'unavailable' },
+        files: [],
+        contentHash: stableHash(record.descriptor),
+        inspectedAt: record.updatedAt,
+      },
+      archivedAt: null,
+      importedAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    })
+    const components = records.map(toProjectComponent)
+    const byId = new Map(components.map((component) => [component.id, component]))
+    const versions = detail.versions.map((version) => {
+      if (isProjectAgentVersionReference(version.snapshot)) {
+        throw new StudioCoreError(
+          'PROJECT_INVALID',
+          '未绑定的历史 Agent 包含项目引用，已拒绝混合迁移。',
+        )
+      }
+      const snapshotComponents = version.snapshot.stack.components.map(({ componentId }) => {
+        const component = byId.get(componentId)
+        if (!component) throw new Error(`Missing migrated component ${componentId}`)
+        return component
+      })
+      const snapshot = {
+        project: { id: detail.agent.id, name: version.snapshot.agent.name },
+        stack: {
+          executionMode: version.snapshot.stack.executionMode,
+          componentIds: version.snapshot.stack.components.map(({ componentId }) => componentId),
+          capabilityOwners: version.snapshot.stack.capabilityOwners,
+        },
+        components: snapshotComponents,
+        workflows: [],
+      }
+      return projectVersionSchema.parse({
+        id: version.id,
+        versionNumber: version.versionNumber,
+        sourceRevision: Math.max(0, version.snapshot.stack.revision - 1),
+        contentHash: stableHash(snapshot),
+        snapshot,
+        createdAt: version.createdAt,
+      })
+    })
+    const project = studioProjectSchema.parse({
+      $schema: PROJECT_SCHEMA_ID,
+      formatVersion: PROJECT_FORMAT_VERSION,
+      id: detail.agent.id,
+      name: detail.agent.name,
+      description: detail.agent.description,
+      revision: detail.draft.revision,
+      components,
+      stack: {
+        executionMode: detail.draft.executionMode,
+        componentIds: stack.components.map(({ id }) => id),
+        capabilityOwners: stack.owners.map(({ capability, componentId }) => ({
+          capability,
+          componentId,
+        })),
+      },
+      workflows: [],
+      versions,
+      createdAt: detail.agent.createdAt,
+      updatedAt: detail.agent.updatedAt,
+    })
+    const result = await this.#store.init(rootPath, project)
+    if (result.project.id !== detail.agent.id) {
+      throw new StudioCoreError(
+        'PROJECT_ALREADY_EXISTS',
+        '迁移目录中已有同名但不同 ID 的项目，已拒绝覆盖。',
+        {
+          details: { expectedProjectId: detail.agent.id, actualProjectId: result.project.id },
+        },
+      )
+    }
+    await copyFile(result.path, `${result.path}.migration-backup`)
+    return result
   }
 
   async exportProjectPackage(
@@ -172,6 +305,43 @@ export class StudioCore {
     })
   }
 
+  async installDeclaredComponents(
+    rootPath: string,
+    records: Array<Pick<ComponentRecord, 'id' | 'descriptor'>>,
+    options: ProjectMutationOptions = {},
+  ): Promise<ProjectReadResult> {
+    return this.#mutate(rootPath, options, (project) => {
+      const timestamp = new Date().toISOString()
+      const existing = new Set(project.components.map(({ id }) => id))
+      return {
+        ...project,
+        components: [
+          ...project.components,
+          ...records
+            .filter(({ id }) => !existing.has(id))
+            .map((record) => ({
+              id: record.id,
+              descriptor: record.descriptor,
+              evidenceLevel: 'declared' as const,
+              source: {
+                path: `studio-builtin:${record.id}`,
+                manifestPath: null,
+                readmePath: null,
+                licensePath: null,
+                git: { remote: null, commit: null, status: 'unavailable' as const },
+                files: [],
+                contentHash: stableHash(record.descriptor),
+                inspectedAt: timestamp,
+              },
+              archivedAt: null,
+              importedAt: timestamp,
+              updatedAt: timestamp,
+            })),
+        ],
+      }
+    })
+  }
+
   async updateComponent(
     rootPath: string,
     componentId: string,
@@ -214,7 +384,7 @@ export class StudioCore {
             ? {
                 ...component,
                 descriptor: parsed,
-                evidenceLevel: 'user-confirmed' as const,
+                evidenceLevel: component.evidenceLevel,
                 updatedAt: new Date().toISOString(),
               }
             : component,
@@ -569,6 +739,13 @@ export class StudioCore {
       }
       return [component]
     })
+    const assessments = components.map((component) =>
+      assessComponentCompatibility({
+        componentId: component.id,
+        descriptor: component.descriptor,
+        checkedAt,
+      }),
+    )
     if (components.length === 0) {
       issues.push({
         severity: 'error',
@@ -592,28 +769,26 @@ export class StudioCore {
         })
       }
       const compatibility = component.descriptor.compatibility
-      if (compatibility.level === 'blocked' || compatibility.validation === 'failed') {
+      const assessment = assessments.find(({ componentId }) => componentId === component.id)!
+      if (assessment.status === 'incompatible') {
         issues.push({
           severity: 'error',
           code: 'COMPONENT_BLOCKED',
-          message: `${component.descriptor.name} 已阻断：${compatibility.detail}`,
+          message: `${component.descriptor.name} 不兼容：${assessment.blockers.join('；')}`,
           componentId: component.id,
           capability: null,
           suggestedActions: validationAction('COMPONENT_BLOCKED'),
         })
-      } else if (compatibility.level === 'unknown') {
+      } else if (assessment.status === 'unchecked') {
         issues.push({
           severity: 'error',
           code: 'COMPATIBILITY_UNKNOWN',
-          message: `${component.descriptor.name} 缺少兼容性结论。`,
+          message: `${component.descriptor.name} 未完成兼容性检查：${assessment.blockers.join('；')}`,
           componentId: component.id,
           capability: null,
           suggestedActions: validationAction('COMPATIBILITY_UNKNOWN'),
         })
-      } else if (
-        ['adapter', 'fork'].includes(compatibility.level) &&
-        compatibility.validation !== 'runtime-verified'
-      ) {
+      } else if (assessment.status === 'adapter-required') {
         remediationTasks.push(
           ...buildCompatibilityRemediationTasks({
             componentId: component.id,
@@ -624,7 +799,7 @@ export class StudioCore {
         issues.push({
           severity: 'error',
           code: 'ADAPTER_UNVERIFIED',
-          message: `${component.descriptor.name} 尚未通过最小运行验证。`,
+          message: `${component.descriptor.name} 需要 Adapter/Fork 契约与受信最小运行验证。`,
           componentId: component.id,
           capability: null,
           suggestedActions: validationAction('ADAPTER_UNVERIFIED'),
@@ -711,6 +886,7 @@ export class StudioCore {
       status: blocking ? 'blocked' : 'ready',
       revision: project.revision,
       issues,
+      assessments,
       remediationTasks,
       runtimePlanHash: blocking
         ? null

@@ -187,11 +187,13 @@ describe('RunService', () => {
     await vi.waitFor(() => expect(resources.runRepository.get(run.id).status).toBe('running'))
 
     resources.service.cancel(run.id)
+    resources.service.cancel(run.id)
     await vi.waitFor(() => expect(resources.runRepository.get(run.id).status).toBe('cancelled'))
     const detail = resources.service.get(run.id)
     expect(detail.events.map(({ type }) => type)).toEqual(
       expect.arrayContaining(['cancel-requested', 'cancelled']),
     )
+    expect(detail.events.filter(({ type }) => type === 'cancel-requested')).toHaveLength(1)
     expect(detail.artifacts).toEqual([])
     resources.runRepository.close()
     resources.componentRepository.close()

@@ -46,6 +46,34 @@ export const validationStatusSchema = z.enum([
   'failed',
 ])
 
+function safeDescriptorReference(value: string): boolean {
+  if (/[\0\r\n]/.test(value)) return false
+  if (
+    /\b(?:authorization|credential|password|passwd|private[-_]?key|secret|token|api[-_]?key)\s*[:=]\s*\S+/i.test(
+      value,
+    )
+  )
+    return false
+  try {
+    const url = new URL(value)
+    if (url.username || url.password) return false
+    return ![...url.searchParams.keys()].some((key) =>
+      /(?:^|[-_])(?:authorization|credential|password|secret|token|api[-_]?key)(?:$|[-_])/i.test(
+        key,
+      ),
+    )
+  } catch {
+    return true
+  }
+}
+
+const descriptorReferenceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2_000)
+  .refine(safeDescriptorReference, '引用不得包含凭证、密钥查询参数或换行符。')
+
 export const componentProviderSchema = z
   .object({
     capability: capabilityIdSchema,
@@ -79,15 +107,15 @@ export const componentDescriptorSchema = z
     source: z
       .object({
         kind: z.enum(['built-in', 'local-package', 'static-import', 'generated-adapter']),
-        location: z.string().trim().min(1).max(2_000),
+        location: descriptorReferenceSchema,
         license: z.string().trim().min(1).max(120),
       })
       .strict(),
     platforms: z.array(z.enum(['darwin-arm64', 'darwin-x64'])).min(1),
     provides: z.array(componentProviderSchema).min(1),
     requires: z.array(componentRequirementSchema),
-    configSchema: z.string().trim().min(1).nullable(),
-    runtimeAdapter: z.string().trim().min(1).nullable(),
+    configSchema: descriptorReferenceSchema.nullable(),
+    runtimeAdapter: descriptorReferenceSchema.nullable(),
     compatibility: z
       .object({
         level: compatibilityLevelSchema,
@@ -132,6 +160,7 @@ export const componentRecordSchema = z
     descriptor: componentDescriptorSchema,
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
+    archivedAt: z.iso.datetime().nullable().optional(),
   })
   .strict()
 

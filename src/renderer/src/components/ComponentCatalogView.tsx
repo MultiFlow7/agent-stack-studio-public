@@ -1,16 +1,30 @@
 import {
+  Archive,
   ArrowClockwise,
   ArrowLeft,
   Cube,
   Info,
   MagnifyingGlass,
+  PencilSimple,
+  Plus,
+  Trash,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentCatalogItem } from '../../../shared/component-catalog'
-import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
+import type { ComponentDescriptor } from '../../../shared/component'
+import {
+  capabilityLabel,
+  compatibilityAssessmentLabels,
+  compatibilityLabels,
+  validationLabels,
+} from '../copy'
 
 type CatalogStatus = 'loading' | 'ready' | 'error'
+
+interface ComponentCatalogViewProps {
+  initialComponentId?: string
+}
 
 function sourceLabel(kind: ComponentCatalogItem['component']['descriptor']['source']['kind']) {
   if (kind === 'built-in') return '内置'
@@ -19,7 +33,7 @@ function sourceLabel(kind: ComponentCatalogItem['component']['descriptor']['sour
   return '本地包'
 }
 
-export function ComponentCatalogView() {
+export function ComponentCatalogView({ initialComponentId }: ComponentCatalogViewProps) {
   const [items, setItems] = useState<ComponentCatalogItem[]>([])
   const [status, setStatus] = useState<CatalogStatus>('loading')
   const [error, setError] = useState<string>()
@@ -30,6 +44,10 @@ export function ComponentCatalogView() {
   const [detail, setDetail] = useState<ComponentCatalogItem>()
   const [detailStatus, setDetailStatus] = useState<CatalogStatus>('ready')
   const [detailError, setDetailError] = useState<string>()
+  const [isImporting, setImporting] = useState(false)
+  const [feedback, setFeedback] = useState<string>()
+  const [pending, setPending] = useState<string>()
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -43,20 +61,77 @@ export function ComponentCatalogView() {
     }
   }, [])
 
+  const importComponent = useCallback(async () => {
+    setImporting(true)
+    setError(undefined)
+    setFeedback(undefined)
+    try {
+      const current = await window.studio.studioProject!.current()
+      if (!current.project) throw new Error('请先在顶栏打开或创建一个项目。')
+      const next = await window.studio.studioProject!.importComponent(current.project.revision)
+      setItems(await window.studio.components.catalog())
+      setStatus('ready')
+      if (next.project?.revision !== current.project.revision) {
+        setFeedback('组件已静态导入，现在可以在 Agent 的 Stack 中选择。')
+      }
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : '无法导入组件。')
+      setStatus('error')
+    } finally {
+      setImporting(false)
+    }
+  }, [])
+
   const openDetail = useCallback(async (componentId: string) => {
+    const request = ++detailRequest.current
     setSelectedId(componentId)
     setDetail(undefined)
     setDetailError(undefined)
     setDetailStatus('loading')
     window.setTimeout(() => document.getElementById('component-detail-panel')?.focus(), 0)
     try {
-      setDetail(await window.studio.components.get(componentId))
+      const nextDetail = await window.studio.components.get(componentId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setDetailStatus('ready')
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setDetailError(loadError instanceof Error ? loadError.message : '无法读取组件详情。')
       setDetailStatus('error')
     }
   }, [])
+
+  const mutateComponent = useCallback(
+    async (
+      componentId: string,
+      action: (expectedRevision: number) => Promise<unknown>,
+      success: string,
+      deleted = false,
+    ) => {
+      setPending(componentId)
+      setDetailError(undefined)
+      setFeedback(undefined)
+      try {
+        const current = await window.studio.studioProject!.current()
+        if (!current.project) throw new Error('请先在顶栏打开或创建一个项目。')
+        await action(current.project.revision)
+        const nextItems = await window.studio.components.catalog()
+        setItems(nextItems)
+        setFeedback(success)
+        if (deleted) {
+          setSelectedId(undefined)
+          setDetail(undefined)
+        } else {
+          setDetail(await window.studio.components.get(componentId))
+        }
+      } catch (cause) {
+        setDetailError(cause instanceof Error ? cause.message : '无法更新组件。')
+      } finally {
+        setPending(undefined)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     let active = true
@@ -76,6 +151,12 @@ export function ComponentCatalogView() {
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!initialComponentId) return
+    const timer = window.setTimeout(() => void openDetail(initialComponentId), 0)
+    return () => window.clearTimeout(timer)
+  }, [initialComponentId, openDetail])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('zh-CN')
@@ -98,10 +179,27 @@ export function ComponentCatalogView() {
     <div className="catalog-page">
       <header className="page-header">
         <div>
-          <h1>组件</h1>
-          <p>查看保存在这台 Mac 上的 Component Contract、能力覆盖、使用方和验证证据。</p>
+          <h1>组件库</h1>
+          <p>管理当前项目可用的组件、来源、版本、Descriptor 与兼容证据。</p>
+        </div>
+        <div className="page-header__actions">
+          <button
+            className="button button--primary"
+            disabled={isImporting}
+            onClick={() => void importComponent()}
+            type="button"
+          >
+            <Plus aria-hidden="true" size={17} />
+            {isImporting ? '正在检查…' : '从本地导入组件'}
+          </button>
         </div>
       </header>
+
+      {feedback ? (
+        <div className="detail-feedback" role="status">
+          {feedback}
+        </div>
+      ) : null}
 
       {status === 'loading' ? (
         <section aria-busy="true" aria-label="正在载入组件" className="loading-state">
@@ -130,7 +228,14 @@ export function ComponentCatalogView() {
             <Cube size={32} weight="duotone" />
           </div>
           <h2>尚无本地组件记录</h2>
-          <p>静态导入或内置组件通过 Component Contract v1 验证后，会出现在这里。</p>
+          <p>选择本地仓库后，Studio 只做静态检查；导入完成后会立即出现在 Agent 组装器中。</p>
+          <button
+            className="button button--primary"
+            onClick={() => void importComponent()}
+            type="button"
+          >
+            <Plus aria-hidden="true" size={17} /> 导入第一个组件
+          </button>
         </section>
       ) : null}
 
@@ -295,6 +400,7 @@ export function ComponentCatalogView() {
           <button
             className="back-button"
             onClick={() => {
+              detailRequest.current += 1
               setSelectedId(undefined)
               setDetail(undefined)
               setDetailError(undefined)
@@ -323,15 +429,75 @@ export function ComponentCatalogView() {
               </button>
             </div>
           ) : null}
-          {detailStatus === 'ready' && detail ? <ComponentDetail item={detail} /> : null}
+          {detailStatus === 'ready' && detail ? (
+            <ComponentDetail
+              item={detail}
+              pending={pending === detail.component.id}
+              onArchive={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.archiveComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '组件已归档，历史引用保持可读。',
+                )
+              }
+              onDelete={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.deleteComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '未引用组件已删除。',
+                  true,
+                )
+              }
+              onUpdate={(descriptor) =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.updateDescriptor({
+                      componentId: detail.component.id,
+                      descriptor,
+                      expectedRevision,
+                    }),
+                  'Descriptor 已更新，原兼容证据等级保持不变。',
+                )
+              }
+            />
+          ) : null}
         </section>
       ) : null}
     </div>
   )
 }
 
-function ComponentDetail({ item }: { item: ComponentCatalogItem }) {
+function ComponentDetail({
+  item,
+  pending,
+  onArchive,
+  onDelete,
+  onUpdate,
+}: {
+  item: ComponentCatalogItem
+  pending: boolean
+  onArchive: () => Promise<void>
+  onDelete: () => Promise<void>
+  onUpdate: (descriptor: ComponentDescriptor) => Promise<void>
+}) {
   const descriptor = item.component.descriptor
+  const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [name, setName] = useState(descriptor.name)
+  const [version, setVersion] = useState(descriptor.version)
+  const [license, setLicense] = useState(descriptor.source.license)
+  const [detail, setCompatibilityDetail] = useState(descriptor.compatibility.detail)
+  const [configSchema, setConfigSchema] = useState(descriptor.configSchema ?? '')
+  const [runtimeAdapter, setRuntimeAdapter] = useState(descriptor.runtimeAdapter ?? '')
   return (
     <div className="component-detail">
       <header>
@@ -339,7 +505,129 @@ function ComponentDetail({ item }: { item: ComponentCatalogItem }) {
         <h2>{descriptor.name}</h2>
         <p>{descriptor.compatibility.detail}</p>
         <code>{descriptor.id}</code>
+        <div className="page-header__actions">
+          <button
+            className="button button--secondary"
+            disabled={pending}
+            onClick={() => setEditing((value) => !value)}
+            type="button"
+          >
+            <PencilSimple aria-hidden="true" size={17} />
+            {editing ? '取消更新' : '更新 Descriptor'}
+          </button>
+          <button
+            className="button button--secondary"
+            disabled={pending || Boolean(item.component.archivedAt)}
+            onClick={() => void onArchive()}
+            type="button"
+          >
+            <Archive aria-hidden="true" size={17} />
+            {item.component.archivedAt ? '已归档' : '归档组件'}
+          </button>
+          {!confirmDelete ? (
+            <button
+              className="button button--danger"
+              disabled={pending}
+              onClick={() => setConfirmDelete(true)}
+              type="button"
+            >
+              <Trash aria-hidden="true" size={17} />
+              移除组件
+            </button>
+          ) : (
+            <span className="inline-confirm" role="group" aria-label={`删除 ${descriptor.name}`}>
+              <button
+                className="button button--danger"
+                disabled={pending}
+                onClick={() => void onDelete()}
+                type="button"
+              >
+                确认删除
+              </button>
+              <button
+                className="button button--secondary"
+                disabled={pending}
+                onClick={() => setConfirmDelete(false)}
+                type="button"
+              >
+                取消
+              </button>
+            </span>
+          )}
+        </div>
       </header>
+
+      {editing ? (
+        <form
+          className="descriptor-form"
+          aria-label={`更新 ${descriptor.name} Descriptor`}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void onUpdate({
+              ...descriptor,
+              name,
+              version,
+              source: { ...descriptor.source, license },
+              compatibility: { ...descriptor.compatibility, detail },
+              configSchema: configSchema.trim() || null,
+              runtimeAdapter: runtimeAdapter.trim() || null,
+            }).then(() => setEditing(false))
+          }}
+        >
+          <label>
+            <span>名称</span>
+            <input
+              maxLength={100}
+              onChange={(event) => setName(event.target.value)}
+              required
+              value={name}
+            />
+          </label>
+          <label>
+            <span>版本</span>
+            <input
+              onChange={(event) => setVersion(event.target.value)}
+              pattern="\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?"
+              required
+              value={version}
+            />
+          </label>
+          <label>
+            <span>许可证</span>
+            <input
+              maxLength={120}
+              onChange={(event) => setLicense(event.target.value)}
+              required
+              value={license}
+            />
+          </label>
+          <label>
+            <span>兼容性说明</span>
+            <textarea
+              maxLength={500}
+              onChange={(event) => setCompatibilityDetail(event.target.value)}
+              required
+              rows={3}
+              value={detail}
+            />
+          </label>
+          <label>
+            <span>配置 Schema 引用（可选）</span>
+            <input onChange={(event) => setConfigSchema(event.target.value)} value={configSchema} />
+          </label>
+          <label>
+            <span>Runtime Adapter 引用（可选）</span>
+            <input
+              onChange={(event) => setRuntimeAdapter(event.target.value)}
+              value={runtimeAdapter}
+            />
+          </label>
+          <p>保存只更新结构化字段，不会自动改为“用户确认兼容”。</p>
+          <button className="button button--primary" disabled={pending} type="submit">
+            保存 Descriptor
+          </button>
+        </form>
+      ) : null}
 
       <div className="component-detail__grid">
         <section>
@@ -402,6 +690,59 @@ function ComponentDetail({ item }: { item: ComponentCatalogItem }) {
           </dl>
         </section>
       </div>
+
+      <section>
+        <h3>可解释的兼容性评估</h3>
+        {item.assessment ? (
+          <div className="compatibility-assessment">
+            <p>
+              <strong>{compatibilityAssessmentLabels[item.assessment.status]}</strong>
+              <span>
+                {new Date(item.assessment.checkedAt).toLocaleString('zh-CN')} ·{' '}
+                {item.assessment.method === 'trusted-runtime-v1'
+                  ? '受信运行验证'
+                  : '静态 Descriptor 评估'}
+              </span>
+            </p>
+            <ul>
+              {item.assessment.evidence.map((evidence, index) => (
+                <li key={`${evidence.kind}-${index}`}>
+                  <strong>
+                    {evidence.status === 'passed'
+                      ? '已通过'
+                      : evidence.status === 'blocked'
+                        ? '阻断'
+                        : evidence.status === 'missing'
+                          ? '缺失'
+                          : '需人工决定'}
+                  </strong>
+                  <span>{evidence.detail}</span>
+                </li>
+              ))}
+            </ul>
+            {item.assessment.blockers.length > 0 ? (
+              <div role="alert">
+                <strong>阻断原因</strong>
+                <ul>
+                  {item.assessment.blockers.map((blocker) => (
+                    <li key={blocker}>{blocker}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div>
+              <strong>建议下一步</strong>
+              <ol>
+                {item.assessment.suggestedActions.map((action) => (
+                  <li key={action}>{action}</li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        ) : (
+          <p>将组件加入 Agent Stack 后，系统会生成静态评估。</p>
+        )}
+      </section>
 
       <section>
         <h3>提供与依赖的能力</h3>

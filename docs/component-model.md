@@ -121,7 +121,7 @@ M2 使用 Component Contract v1 保存不可变的 Descriptor 版本，并在 SQ
 
 ## 9. M7 静态证据等级
 
-项目文件对组件识别结论使用五级证据：`declared`、`detected`、`user-confirmed`、`contract-tested`、`runtime-verified`。安全静态导入最多产生 declared 或 detected；用户更正 Descriptor 后为 user-confirmed。只有真实契约测试和受信最小运行验证才能继续提升，不能由文案或文件名推断。
+项目文件对组件识别结论使用五级证据：`declared`、`detected`、`user-confirmed`、`contract-tested`、`runtime-verified`。安全静态导入最多产生 declared 或 detected；编辑 Descriptor 只修正结构化事实，必须保留原证据等级。`user-confirmed` 只能由用户对信任、许可、Owner 或业务接受的显式决策产生并留存审计。只有真实契约测试和受信最小运行验证才能继续提升，不能由文案或文件名推断。
 
 Component 的可移植定义由 `.agent-stack` 保存。SQLite 只保留本机项目索引；历史 Version 引用会阻止永久删除，允许归档并保持旧快照可读。
 
@@ -138,3 +138,9 @@ Component 的可移植定义由 `.agent-stack` 保存。SQLite 只保留本机�
 需要 Adapter/Fork 且未通过最小运行验证时，Studio 根据 Descriptor 派生三段处置链：工作产物、契约测试、最小运行验证。每段包含确定 ID、状态和验收条件；`contract-tested` 只证明前两段已有证据，不能把 Runtime Plan 标为就绪。
 
 处置链不是任务管理后台，也不保存生成代码。它不进入 Component Descriptor、项目文件、SQLite 或 Version；重新验证当前事实即可重建。任何实际生成、修复或执行 Adapter/Fork 都仍需用户在明确受信工作区完成。
+
+## 12. M30 兼容性评估
+
+Studio Core 对当前 Stack 的每个 Component 输出 `CompatibilityAssessment`：用户状态为未检查、静态通过、需配置、需 Adapter、运行验证通过或不兼容。结论带稳定证据、阻断原因、`suggestedActions`、验证时间和验证方法；GUI 与 CLI 必须显示同一 Core 结果。
+
+项目的 `components`、`stack`、`owners`、`workflows` 和 `versions` 都只在 `.agent-stack` 中读写。SQLite 中的历史 Component/Stack/Owner/Version 只作一次性迁移输入；迁移完成后本机 Agent 只保留对项目和不可变项目 Version 的稳定引用。

@@ -9,13 +9,14 @@ import {
   Stop,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { Agent } from '../../../shared/agent'
 import type { ExperimentCell, ExperimentDetail, ExperimentRecord } from '../../../shared/experiment'
 import { experimentCellStatusLabels, experimentStatusLabels } from '../copy'
 
 interface ExperimentsViewProps {
   agentId?: string
+  experimentId?: string
 }
 
 const activeStatuses = new Set<ExperimentRecord['status']>(['running', 'cancelling'])
@@ -38,7 +39,7 @@ function deltaLabel(value: number | null): string {
   return `${value > 0 ? '+' : ''}${value} ms`
 }
 
-export function ExperimentsView({ agentId }: ExperimentsViewProps) {
+export function ExperimentsView({ agentId, experimentId }: ExperimentsViewProps) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [experiments, setExperiments] = useState<ExperimentRecord[]>([])
   const [detail, setDetail] = useState<ExperimentDetail>()
@@ -62,31 +63,40 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
   const [repetitions, setRepetitions] = useState(1)
   const [matrixFilter, setMatrixFilter] = useState<MatrixFilter>('all')
   const [matrixQuery, setMatrixQuery] = useState('')
+  const listRequest = useRef(0)
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++listRequest.current
     try {
       const [nextAgents, nextExperiments] = await Promise.all([
         window.studio.agents.list(),
         window.studio.experiments.list(agentId ?? null),
       ])
+      if (request !== listRequest.current) return
       setAgents(nextAgents)
       setExperiments(nextExperiments)
       setSelectedAgentId((current) => current || agentId || nextAgents[0]?.id || '')
       setStatus('ready')
       setError(undefined)
     } catch (loadError) {
+      if (request !== listRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取本地实验。')
       setStatus('error')
     }
   }, [agentId])
 
   const loadDetail = useCallback(async (experimentId: string) => {
+    const request = ++detailRequest.current
     try {
-      setDetail(await window.studio.experiments.get(experimentId))
+      const nextDetail = await window.studio.experiments.get(experimentId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setMatrixFilter('all')
       setMatrixQuery('')
       setError(undefined)
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取实验详情。')
     }
   }, [])
@@ -94,6 +104,10 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (experimentId) void loadDetail(experimentId)
+  }, [experimentId, loadDetail])
 
   const hasActiveExperiment = useMemo(
     () => experiments.some((experiment) => activeStatuses.has(experiment.status)),

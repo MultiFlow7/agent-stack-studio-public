@@ -1,6 +1,6 @@
 # Studio CLI 契约
 
-开发构建通过 `npm run build:cli` 生成 `dist/cli/studio.mjs`。打包应用中的可执行路径显示在“Studio 项目”页；Studio 不修改 PATH、Shell profile 或任何用户配置。
+开发构建通过 `npm run build:cli` 生成 `dist/cli/studio.mjs`。打包应用中的可执行路径显示在次级“项目设置”页；Studio 不修改 PATH、Shell profile 或任何用户配置。
 
 需要把 CLI 中的项目交给 GUI 时，可在启动打包应用时显式传入同一路径：
 
@@ -42,3 +42,5 @@ studio secret set|status|delete
 `source search` 只调用公开 GET API；`source handoff` 返回必须审阅的 `git clone` 与 `studio component inspect` 参数数组。CLI 不执行这两个命令；Coding Agent 或人工 Shell 负责下载和后续工程命令。
 
 `project audit` 是非交互、只读检查：它不会从备份自动恢复，也不会改写 revision。成功结果包含 `algorithm`、`versionsChecked` 和逐版本的 `contentHash`/`snapshotHash`；不一致返回 `PROJECT_INTEGRITY_FAILED`（退出码 21）及结构化修复建议。普通 `project inspect` 仍可按项目存储契约恢复最后有效备份。
+
+M30 之后，CLI 的 `component`、`stack`、`owner`、`workflow` 和 `version` 项目命令与 GUI Agent 组装器共享同一 `.agent-stack` 事实和 Studio Core 验证逻辑。GUI 导入后 CLI 立即可见，CLI 写入后 GUI 通过外部修改通知刷新；revision 不匹配仍返回稳定冲突错误。CLI 不读写 SQLite Component/Stack 副本，也不执行未受信外部代码。

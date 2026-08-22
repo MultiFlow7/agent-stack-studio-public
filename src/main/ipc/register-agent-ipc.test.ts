@@ -25,9 +25,12 @@ vi.mock('electron', () => ({
 
 import { registerAgentIpc } from './register-agent-ipc'
 
+const trustedFrame = {
+  url: 'file:///Applications/Agent%20Stack%20Studio.app/Contents/Resources/app.asar/dist/renderer/index.html',
+}
 const trustedEvent = {
-  senderFrame: { url: 'file:///Applications/Agent%20Stack%20Studio.app/renderer/index.html' },
-  sender: { getURL: () => '' },
+  senderFrame: trustedFrame,
+  sender: { mainFrame: trustedFrame, getURL: () => trustedFrame.url },
 }
 
 const projection: AgentStatusProjection = {

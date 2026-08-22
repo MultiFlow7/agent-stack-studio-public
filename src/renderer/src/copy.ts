@@ -2,6 +2,8 @@ import type { ExecutionMode } from '../../shared/agent'
 import type { CapabilityId, ComponentDescriptor } from '../../shared/component'
 import type { RunRecord } from '../../shared/run'
 import type { ExperimentCell, ExperimentRecord } from '../../shared/experiment'
+import type { CommandCenterSnapshot } from '../../shared/command-center'
+import type { PublishReceipt } from '../../shared/publish'
 
 export const executionModeLabels: Record<ExecutionMode, string> = {
   'agent-loop': 'Agent 循环',
@@ -47,6 +49,15 @@ export const validationLabels: Record<ComponentDescriptor['compatibility']['vali
     failed: '验证失败',
   }
 
+export const compatibilityAssessmentLabels = {
+  unchecked: '未检查',
+  'static-passed': '静态通过',
+  'configuration-required': '需配置',
+  'adapter-required': '需 Adapter',
+  'runtime-verified': '运行验证通过',
+  incompatible: '不兼容',
+} as const
+
 export const runStatusLabels: Record<RunRecord['status'], string> = {
   queued: '排队中',
   starting: '正在启动',
@@ -75,4 +86,29 @@ export const experimentCellStatusLabels: Record<ExperimentCell['status'], string
   failed: '失败',
   cancelled: '已取消',
   blocked: '已阻断',
+}
+
+export const workspaceStatusLabels: Record<CommandCenterSnapshot['workspace']['status'], string> = {
+  empty: '未打开项目',
+  ready: '项目就绪',
+  blocked: '项目已阻断',
+  'changed-externally': '检测到外部修改',
+}
+
+export const activityStatusLabels: Record<CommandCenterSnapshot['activity']['status'], string> = {
+  idle: '当前无 Run',
+  active: 'Run 进行中',
+  attention: 'Run 需关注',
+  complete: 'Run 已完成',
+}
+
+export const stackStatusLabels = {
+  ready: '就绪',
+  blocked: '已阻断',
+} as const
+
+export const publishStatusLabels: Record<PublishReceipt['status'], string> = {
+  pending: '进行中',
+  succeeded: '已成功',
+  failed: '失败',
 }

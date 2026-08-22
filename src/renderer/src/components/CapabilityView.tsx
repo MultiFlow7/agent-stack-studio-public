@@ -1,7 +1,7 @@
 import { ArrowClockwise, CheckCircle, Stack, WarningCircle } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { StackState } from '../../../shared/runtime-plan'
-import { capabilityLabel, validationLabels } from '../copy'
+import { capabilityLabel, stackStatusLabels, validationLabels } from '../copy'
 import { RemediationTaskList } from './RemediationTaskList'
 
 interface CapabilityViewProps {
@@ -143,7 +143,7 @@ export function CapabilityView({ agentId, onOpenStack }: CapabilityViewProps) {
           ) : (
             <WarningCircle aria-hidden="true" size={16} weight="fill" />
           )}
-          {stack.compilation.status === 'ready' ? 'Runtime Plan 已就绪' : '存在阻断项'}
+          Runtime Plan {stackStatusLabels[stack.compilation.status]}
         </span>
       </header>
 

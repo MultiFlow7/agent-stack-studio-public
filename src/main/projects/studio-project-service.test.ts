@@ -7,6 +7,7 @@ import type { StudioProject } from '../../core/project-model'
 import { ComponentService } from '../components/component-service'
 import { ComponentRepository } from '../persistence/component-repository'
 import { ProjectIndexRepository } from '../persistence/project-index-repository'
+import { AgentRepository } from '../persistence/agent-repository'
 import { StudioProjectService } from './studio-project-service'
 
 const directories: string[] = []
@@ -29,6 +30,38 @@ afterEach(async () => {
 })
 
 describe('StudioProjectService GUI/CLI consistency', () => {
+  it('makes a library import immediately selectable by the project Agent without SQLite duplication', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-library-'))
+    directories.push(directory)
+    const databasePath = path.join(directory, 'studio.sqlite3')
+    const componentRepository = new ComponentRepository(databasePath)
+    const agentRepository = new AgentRepository(databasePath)
+    const index = new ProjectIndexRepository(databasePath)
+    const components = new ComponentService(componentRepository)
+    const service = new StudioProjectService({
+      index,
+      components,
+      agents: agentRepository,
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    components.connectProject(service)
+    let state = await service.init(path.join(directory, 'project'))
+    state = await service.importComponent(
+      path.resolve('src/test/fixtures/m7/harness-x'),
+      state.project!.revision,
+    )
+
+    expect(components.list().map(({ id }) => id)).toEqual([state.project!.components[0].id])
+    expect(componentRepository.list()).toEqual([])
+    state = await service.stackAdd(state.project!.components[0].id, state.project!.revision)
+    expect(components.getStack(state.localAgentId!).components).toHaveLength(1)
+
+    service.close()
+    index.close()
+    agentRepository.close()
+    componentRepository.close()
+  })
+
   it('writes through Studio Core, lets CLI read the same state, and reports later CLI changes', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-service-'))
     directories.push(directory)
@@ -61,6 +94,7 @@ describe('StudioProjectService GUI/CLI consistency', () => {
     await executeCliCommand(
       parseArguments(['stack', 'remove', component.id, '--project', projectRoot, '--json']),
     )
+    expect((await service.summary()).project!.stack.componentIds).toEqual([])
     await changed
     expect((await service.current(true)).project!.stack.componentIds).toEqual([])
 

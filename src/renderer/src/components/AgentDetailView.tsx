@@ -14,10 +14,16 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { ExecutionMode } from '../../../shared/agent'
 import type { AgentDetail } from '../../../shared/agent-detail'
 import type { AgentStatusProjection } from '../../../shared/agent-status'
-import { executionModeLabels, experimentStatusLabels, runStatusLabels } from '../copy'
+import {
+  executionModeLabels,
+  experimentStatusLabels,
+  publishStatusLabels,
+  runStatusLabels,
+  stackStatusLabels,
+} from '../copy'
 import { ExperimentsView } from './ExperimentsView'
 import { RunsView } from './RunsView'
-import { StackEditorView } from './StackEditorView'
+import { AgentCompositionView } from './AgentCompositionView'
 import { PublishPanel } from './PublishPanel'
 import { SecretReferencesPanel } from './SecretReferencesPanel'
 import { CapabilityView } from './CapabilityView'
@@ -112,7 +118,7 @@ export function AgentDetailView({
     try {
       const version = await window.studio.agents.createVersion(detail.agent.id)
       await refresh()
-      setFeedback(`已从当前草稿创建版本 ${version.versionNumber}。`)
+      setFeedback(`已冻结不可变 Agent Version ${version.versionNumber}。`)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '无法创建版本。')
     } finally {
@@ -195,6 +201,7 @@ export function AgentDetailView({
   }
 
   const currentVersion = detail.versions[0]
+  const projectBacked = detail.location?.sourcePath?.endsWith('.agent-stack') ?? false
 
   function moveTabFocus(current: DetailTab, direction: -1 | 1): void {
     const index = tabs.findIndex((item) => item.id === current)
@@ -222,9 +229,7 @@ export function AgentDetailView({
             <span className="status-label">
               {status.currentVersion ? `版本 ${status.currentVersion.versionNumber}` : '无版本'}
             </span>
-            <span className="status-label">
-              Stack {status.stack.status === 'ready' ? '就绪' : '已阻断'}
-            </span>
+            <span className="status-label">Stack {stackStatusLabels[status.stack.status]}</span>
           </div>
           <p>{detail.agent.description || '暂无描述'}</p>
         </div>
@@ -250,14 +255,16 @@ export function AgentDetailView({
             </>
           ) : (
             <>
-              <button
-                className="button button--quiet"
-                disabled={isSaving}
-                onClick={() => void duplicateAgent()}
-                type="button"
-              >
-                <Copy aria-hidden="true" size={17} /> 复制 Agent
-              </button>
+              {!projectBacked ? (
+                <button
+                  className="button button--quiet"
+                  disabled={isSaving}
+                  onClick={() => void duplicateAgent()}
+                  type="button"
+                >
+                  <Copy aria-hidden="true" size={17} /> 复制 Agent
+                </button>
+              ) : null}
               <button
                 className="button button--quiet"
                 disabled={isSaving}
@@ -280,7 +287,7 @@ export function AgentDetailView({
                 type="button"
               >
                 <Copy aria-hidden="true" size={17} />
-                创建版本
+                冻结 Agent Version
               </button>
             </>
           )}
@@ -383,9 +390,8 @@ export function AgentDetailView({
                 <div>
                   <dt>Stack 状态</dt>
                   <dd>
-                    {status.stack.status === 'ready' ? '就绪' : '已阻断'} ·{' '}
-                    {status.stack.componentCount} 个组件 · {status.stack.ownerCount} 个 Owner ·{' '}
-                    {status.stack.issueCount} 个未解决问题
+                    {stackStatusLabels[status.stack.status]} · {status.stack.componentCount} 个组件
+                    · {status.stack.ownerCount} 个 Owner · {status.stack.issueCount} 个未解决问题
                   </dd>
                 </div>
                 <div>
@@ -413,11 +419,7 @@ export function AgentDetailView({
                   <dd>
                     {status.latestPublish
                       ? `${status.latestPublish.targetLabel} · ${
-                          status.latestPublish.status === 'succeeded'
-                            ? '已成功'
-                            : status.latestPublish.status === 'failed'
-                              ? '失败'
-                              : '进行中'
+                          publishStatusLabels[status.latestPublish.status]
                         } · ${new Date(status.latestPublish.occurredAt).toLocaleString('zh-CN')}`
                       : '尚未发布'}
                   </dd>
@@ -461,7 +463,9 @@ export function AgentDetailView({
           </div>
         ) : null}
 
-        {tab === 'stack' ? <StackEditorView agentId={detail.agent.id} onChanged={refresh} /> : null}
+        {tab === 'stack' ? (
+          <AgentCompositionView agentId={detail.agent.id} onChanged={refresh} />
+        ) : null}
 
         {tab === 'capabilities' ? (
           <CapabilityView agentId={detail.agent.id} onOpenStack={() => setTab('stack')} />
@@ -480,7 +484,7 @@ export function AgentDetailView({
             <form className="settings-form" onSubmit={(event) => void saveSettings(event)}>
               <div>
                 <h2>Agent 设置</h2>
-                <p>修改只会更新草稿，已有版本不会改变。</p>
+                <p>修改会写入当前 .agent-stack 草稿，已冻结版本不会改变。</p>
               </div>
               <div className="field">
                 <label htmlFor="settings-name">名称</label>
@@ -525,7 +529,7 @@ export function AgentDetailView({
               </div>
               <div>
                 <button className="button button--primary" disabled={isSaving} type="submit">
-                  {isSaving ? '正在保存…' : '保存草稿设置'}
+                  {isSaving ? '正在保存…' : '保存到当前项目'}
                 </button>
               </div>
             </form>

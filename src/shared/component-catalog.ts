@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { componentRecordSchema, validationStatusSchema } from './component'
+import { compatibilityAssessmentSchema } from './compatibility-assessment'
 
 export const componentCatalogItemSchema = z
   .object({
@@ -32,6 +33,7 @@ export const componentCatalogItemSchema = z
       })
       .strict()
       .nullable(),
+    assessment: compatibilityAssessmentSchema.nullable().optional(),
   })
   .strict()
 

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import Database from 'better-sqlite3'
@@ -120,6 +120,19 @@ describe('DataMaintenanceService', () => {
     expect(await readdir(path.join(backupPath, 'workspaces', 'agent-a'))).not.toContain(
       'outside-link',
     )
+    expect((await stat(backupPath)).mode & 0o777).toBe(0o700)
+    expect((await stat(path.join(backupPath, 'studio.sqlite3'))).mode & 0o777).toBe(0o600)
+  })
+
+  it('rejects a backup destination inside managed data to prevent recursive copying', async () => {
+    const userData = await temporaryDirectory('studio-recursive-backup-')
+    createCurrentDatabase(userData, 'Recursive Agent')
+    const workspace = path.join(userData, 'workspaces', 'agent-a')
+    await mkdir(workspace, { recursive: true })
+    const service = createService(userData)
+
+    await expect(service.createBackup(workspace)).rejects.toThrow('递归复制')
+    expect((await readdir(workspace)).filter((name) => name.includes('studio-backup'))).toEqual([])
   })
 
   it('stages and applies a restore while preserving an automatic rollback backup', async () => {
@@ -139,7 +152,11 @@ describe('DataMaintenanceService', () => {
     await mkdir(path.join(userData, 'workspaces', 'changed'), { recursive: true })
     await writeFile(path.join(userData, 'workspaces', 'changed', 'note.txt'), '恢复后删除')
 
-    await service.stageRestore(backupPath)
+    const [firstStage, duplicateStage] = await Promise.all([
+      service.stageRestore(backupPath),
+      service.stageRestore(backupPath),
+    ])
+    expect(duplicateStage.preview.backupName).toBe(firstStage.preview.backupName)
     expect((await service.status()).pendingRestore).toBe(true)
     await service.applyPendingRestore()
 

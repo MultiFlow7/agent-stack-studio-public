@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentVersion } from '../../../shared/agent-detail'
 import {
   localContractTestTargetId,
@@ -15,6 +15,7 @@ import {
   type PublishPreview,
   type PublishTarget,
 } from '../../../shared/publish'
+import { publishStatusLabels } from '../copy'
 
 interface PublishPanelProps {
   agentId: string
@@ -32,12 +33,15 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
   const [confirmed, setConfirmed] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [feedback, setFeedback] = useState<string>()
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setStatus('loading')
     setError(undefined)
     try {
       const availableTargets = await window.studio.publishing.targets()
+      if (request !== loadRequest.current) return
       setTargets(availableTargets)
       if (!version) {
         setPreview(undefined)
@@ -53,10 +57,12 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
         }),
         window.studio.publishing.history(selectedTargetId, agentId),
       ])
+      if (request !== loadRequest.current) return
       setPreview(nextPreview)
       setHistory(nextHistory)
       setStatus('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法载入发布预检。')
       setStatus('error')
     }
@@ -302,11 +308,7 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
                     <td>#{receipt.attempt}</td>
                     <td>
                       <span className={`receipt-status receipt-status--${receipt.status}`}>
-                        {receipt.status === 'succeeded'
-                          ? '已发布'
-                          : receipt.status === 'failed'
-                            ? '失败，可重试'
-                            : '处理中'}
+                        {publishStatusLabels[receipt.status]}
                       </span>
                       {receipt.failure ? <small>{receipt.failure.message}</small> : null}
                     </td>

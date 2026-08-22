@@ -158,7 +158,7 @@ describe('PublishPanel', () => {
       confirmed: true,
     })
     expect(await screen.findByText('发布包已通过本地 Connector Contract Test。')).toBeVisible()
-    expect(await screen.findByText('已发布')).toBeVisible()
+    expect(await screen.findByText('已成功')).toBeVisible()
   })
 
   it('keeps the publish action disabled when verification is blocked', async () => {

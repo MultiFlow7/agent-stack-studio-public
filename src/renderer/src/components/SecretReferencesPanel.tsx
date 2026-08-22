@@ -1,5 +1,5 @@
 import { ArrowClockwise, CheckCircle, Key, Trash, WarningCircle } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { SecretReferenceStatus } from '../../../shared/secret-reference'
 
 export function SecretReferencesPanel({ agentId }: { agentId: string }) {
@@ -11,14 +11,19 @@ export function SecretReferencesPanel({ agentId }: { agentId: string }) {
   const [label, setLabel] = useState('')
   const [account, setAccount] = useState('')
   const [pendingDelete, setPendingDelete] = useState<string>()
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setLoadState('loading')
     setError(undefined)
     try {
-      setReferences(await window.studio.secrets.list(agentId))
+      const nextReferences = await window.studio.secrets.list(agentId)
+      if (request !== loadRequest.current) return
+      setReferences(nextReferences)
       setLoadState('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法检查钥匙串状态。')
       setLoadState('error')
     }

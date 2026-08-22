@@ -31,6 +31,7 @@ import { WorkspaceService } from './workspace/workspace-service'
 import { DataMaintenanceService } from './maintenance/data-maintenance-service'
 import { ProjectIndexRepository } from './persistence/project-index-repository'
 import { StudioProjectService } from './projects/studio-project-service'
+import { migrateLegacyPortableFacts } from './projects/legacy-portable-migration'
 import { registerStudioProjectIpc } from './ipc/register-studio-project-ipc'
 import { GithubDiscoveryProvider } from '../adapters/github/github-discovery-provider'
 import { DiscoveryService } from './discovery/discovery-service'
@@ -47,8 +48,12 @@ import {
 } from './preferences/application-preferences-service'
 import { registerPreferencesIpc } from './ipc/register-preferences-ipc'
 import { defaultApplicationPreferences } from '../shared/preferences'
+import { CommandCenterService } from './command-center/command-center-service'
+import { registerCommandCenterIpc } from './ipc/register-command-center-ipc'
+import { sanitizedErrorMessage } from '../shared/sensitive-data'
 
 app.enableSandbox()
+process.umask(0o077)
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const captureUserDataPath = process.env.STUDIO_CAPTURE_USER_DATA_PATH
@@ -58,6 +63,8 @@ if (
 ) {
   app.setPath('userData', captureUserDataPath)
 }
+const ownsSingleInstanceLock = app.requestSingleInstanceLock()
+if (!ownsSingleInstanceLock) app.quit()
 let mainWindow: BrowserWindow | undefined
 let repository: AgentRepository | undefined
 let componentRepository: ComponentRepository | undefined
@@ -203,10 +210,15 @@ function createWindow(): BrowserWindow {
     window.show()
   })
   const captureView = process.env.STUDIO_CAPTURE_VIEW
-  void window.loadFile(
-    path.join(currentDirectory, '../renderer/index.html'),
-    captureView ? { hash: captureView } : undefined,
-  )
+  void window
+    .loadFile(
+      path.join(currentDirectory, '../renderer/index.html'),
+      captureView ? { hash: captureView } : undefined,
+    )
+    .catch(() => {
+      console.error('Agent Stack Studio 无法载入 Renderer。')
+      app.quit()
+    })
   return window
 }
 
@@ -236,6 +248,18 @@ async function bootstrap(): Promise<void> {
   const logger = new AppLogger(path.join(userData, 'logs'))
   repository = new AgentRepository(databasePath)
   componentRepository = new ComponentRepository(databasePath)
+  const portableMigration = await migrateLegacyPortableFacts({
+    agents: repository,
+    components: componentRepository,
+    workspacesRoot: workspacesPath,
+  })
+  if (portableMigration.failed.length) {
+    throw new Error(
+      `历史便携事实迁移未完成：${portableMigration.failed
+        .map(({ agentId, message }) => `${agentId}: ${message}`)
+        .join('；')}`,
+    )
+  }
   runRepository = new RunRepository(databasePath)
   experimentRepository = new ExperimentRepository(databasePath)
   publishRepository = new PublishRepository(databasePath)
@@ -314,8 +338,12 @@ async function bootstrap(): Promise<void> {
   studioProjectService = new StudioProjectService({
     index: projectIndexRepository,
     components,
+    agents: repository,
     cliPath,
   })
+  components.connectProject(studioProjectService)
+  agents.connectProject(studioProjectService)
+  componentCatalog.connectProject(studioProjectService)
   if (launchOptions.projectPath) await studioProjectService.open(launchOptions.projectPath)
   const unregisterStudioProjectIpc = registerStudioProjectIpc({
     projects: studioProjectService,
@@ -332,6 +360,15 @@ async function bootstrap(): Promise<void> {
   })
   const unregisterDiscoveryIpc = registerDiscoveryIpc(discoveryService)
   const unregisterPreferencesIpc = registerPreferencesIpc(applicationPreferences)
+  const unregisterCommandCenterIpc = registerCommandCenterIpc(
+    new CommandCenterService({
+      projects: studioProjectService,
+      agents: agentStatus,
+      components: componentCatalog,
+      runs,
+      experiments,
+    }),
+  )
   unregisterIpc = () => {
     unregisterAgentIpc()
     unregisterSecretIpc()
@@ -343,6 +380,7 @@ async function bootstrap(): Promise<void> {
     unregisterStudioProjectIpc()
     unregisterDiscoveryIpc()
     unregisterPreferencesIpc()
+    unregisterCommandCenterIpc()
   }
 
   createApplicationMenu()
@@ -359,6 +397,7 @@ async function bootstrap(): Promise<void> {
           void mainWindow?.webContents
             .capturePage()
             .then((image) => writeFile(capturePath, image.toPNG()))
+            .catch(() => console.error('无法生成本地验收截图。'))
             .finally(() => app.quit())
         },
         Number(process.env.STUDIO_CAPTURE_DELAY_MS ?? 1_000),
@@ -369,13 +408,22 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-app
-  .whenReady()
-  .then(bootstrap)
-  .catch((error: unknown) => {
-    console.error(error)
-    app.exit(1)
-  })
+if (ownsSingleInstanceLock) {
+  app
+    .whenReady()
+    .then(bootstrap)
+    .catch((error: unknown) => {
+      console.error(sanitizedErrorMessage(error, 'Agent Stack Studio 启动失败。'))
+      app.exit(1)
+    })
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
@@ -391,7 +439,9 @@ app.on('before-quit', (event) => {
   void (async () => {
     await currentExperiments?.stopAll()
     await currentRuntime.stopAll()
-  })().finally(() => app.quit())
+  })()
+    .catch(() => console.warn('退出时本地 Runtime 清理未完整结束。'))
+    .finally(() => app.quit())
 })
 
 app.on('will-quit', () => {

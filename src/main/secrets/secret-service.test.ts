@@ -96,4 +96,36 @@ describe('SecretService', () => {
     expect(repository.listSecretReferences(agent.id)).toEqual([])
     repository.close()
   })
+
+  it('serializes concurrent operations for the same Keychain locator', async () => {
+    const { repository, agent, mocks, service } = await fixture()
+    let active = 0
+    let maximumActive = 0
+    mocks.set.mockImplementation(async () => {
+      active += 1
+      maximumActive = Math.max(maximumActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      active -= 1
+    })
+
+    const [first, second] = await Promise.all([
+      service.configure({
+        agentId: agent.id,
+        label: 'First',
+        keychainAccount: 'shared-account',
+        secret: 'first-value',
+      }),
+      service.configure({
+        agentId: agent.id,
+        label: 'Second',
+        keychainAccount: 'shared-account',
+        secret: 'second-value',
+      }),
+    ])
+
+    expect(maximumActive).toBe(1)
+    expect(second.id).toBe(first.id)
+    expect(repository.listSecretReferences(agent.id)).toHaveLength(1)
+    repository.close()
+  })
 })

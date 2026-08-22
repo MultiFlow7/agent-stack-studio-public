@@ -25,6 +25,7 @@ const sensitiveContentPatterns = [
 
 const allowedEmailDomains = new Set(['example.test', 'users.noreply.github.com'])
 const allowedUserNames = new Set(['researcher', 'runner', 'test', 'tester'])
+const approvedBinaryAssets = new Set(['build/icon.icns', 'build/icon.png'])
 
 function addUniqueIssue(issues, issue) {
   if (
@@ -46,7 +47,12 @@ export function inspectPublicSnapshotFile(filePath, content) {
     }
   }
 
-  if (Buffer.isBuffer(content) && content.includes(0)) return issues
+  if (Buffer.isBuffer(content) && content.includes(0)) {
+    if (!approvedBinaryAssets.has(normalizedPath)) {
+      addUniqueIssue(issues, { path: normalizedPath, category: 'unapproved-binary' })
+    }
+    return issues
+  }
   const text = Buffer.isBuffer(content) ? content.toString('utf8') : content
 
   for (const { category, pattern } of sensitiveContentPatterns) {

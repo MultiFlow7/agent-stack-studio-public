@@ -32,11 +32,14 @@ Agent Stack Studio 是一个仅面向 macOS 的本地桌面工具，用于识别
 - [不可变项目版本完整性 ADR](./docs/adr/0006-immutable-project-version-integrity.md)
 - [macOS 钥匙串与发布就绪 ADR](./docs/adr/0007-macos-keychain-and-release-readiness.md)
 - [本地可信执行 Profile ADR](./docs/adr/0008-local-trusted-execution-profiles.md)
+- [Agent-first 项目集成 ADR](./docs/adr/0009-agent-first-project-integration.md)
 - [术语表](./docs/glossary.md)
 - [本地产品完整性矩阵](./docs/local-completeness-matrix.md)
 - [正式分发架构就绪矩阵](./docs/release-readiness-matrix.md)
+- [本地验收审计](./docs/local-acceptance-audit.md)
+- [稳定性与敏感信息审计](./docs/resilience-security-audit.md)
 
-当前仓库已完成 M0 至 M25 的可运行纵向切片。M25 完整覆盖 GitHub 公开来源发现的空闲、加载、成功、无结果、取消、离线、15 秒超时、限流和 Provider 错误；每类失败显示与事实一致的恢复动作，Preload 统一移除 Electron IPC 内部前缀。打包证据不依赖外网，只验证公开元数据安全边界和本地输入拒绝。M24 的实验矩阵、M23 的 Run 历史、M22 的 Adapter/Fork 任务与 Component 生命周期、M21 的项目/包 v2 和版本化 Workflow DAG 继续保留。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
+当前仓库已实现 M0 至 M30 的可运行纵向切片。M30 将 Agent 收敛为主入口：组件库导入后立即可在 Agent 组装器选择，兼容性结论带有证据、阻断原因、建议动作、时间和方法，项目设置只管理全局项目上下文。`.agent-stack` 是 Component、Stack、Owner、Workflow 和不可变 Version 的唯一便携事实源；SQLite v9 只保留本机 Agent/项目/Version 引用及 Run、Experiment、Receipt 等本机记录。旧 SQLite 便携事实会带备份、冲突拒绝和可重试回滚迁移到项目文件。Studio 仍不自动下载或执行候选仓库；真实 Multica Transport 仍需在确认官方认证与接口后接入。
 
 ## 本地开发
 
@@ -58,13 +61,14 @@ npm run package:cli  # 构建并检查与应用同版本的 studio CLI
 npm run test:e2e:packaged # 实际启动已打包 .app 并检查中文设置页与 Renderer 边界
 npm run release:dry-run # 无凭证也运行全套检查并生成结构化分发报告
 npm run verify:public-snapshot # 检查待公开快照中的凭证与个人信息
+npm run verify:local-acceptance # 拒绝未分类占位、测试旁路与断路导航
 ```
 
 工程边界位于 `src/renderer`、`src/preload`、`src/main`、`src/runtime` 和 `src/shared`。Renderer 只能访问 Preload 暴露且经 schema 校验的白名单 API；SQLite、工作区、原生目录选择器和 Runtime 子进程均由 Main 管理。每次正式 Run 都创建全新的 Runtime 子进程，Cordis 类型不会进入领域模型或 UI。
 
 M6 的安装、签名/公证边界、升级、备份恢复和键盘验收见 [macOS 分发说明](./docs/macos-distribution.md)。
 
-CLI 不会修改 PATH。构建后可直接运行 `dist/cli/studio.mjs help`；打包应用会在“Studio 项目”页显示应用包内的准确命令路径。
+CLI 不会修改 PATH。构建后可直接运行 `dist/cli/studio.mjs help`；打包应用会在顶栏的“当前项目”次级入口下的“项目设置”显示应用包内准确命令路径。
 
 打包 GUI 可在启动时直接打开 CLI 管理的同一项目：
 

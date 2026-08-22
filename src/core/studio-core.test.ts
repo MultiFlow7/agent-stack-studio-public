@@ -71,7 +71,7 @@ describe('StudioCore local Coding Agent workflow', () => {
       component.id,
       path.resolve('src/test/fixtures/m7/detected/fixed-descriptor.json'),
     )
-    expect(state.project.components[0].evidenceLevel).toBe('user-confirmed')
+    expect(state.project.components[0].evidenceLevel).toBe('detected')
     expect(core.validate(state.project).status).toBe('ready')
     await core.freezeVersion(root)
     await core.removeStackComponent(root, component.id)

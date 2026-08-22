@@ -2,7 +2,7 @@ import { builtInComponents } from '../main/components/built-in-components'
 import { buildRunManifest } from '../main/domain/run-manifest'
 import { compileRuntimePlan } from '../main/domain/runtime-plan-compiler'
 import type { ExecutionMode } from '../shared/agent'
-import type { AgentVersion } from '../shared/agent-detail'
+import type { MaterializedAgentVersion } from '../shared/agent-detail'
 import type { ComponentRecord } from '../shared/component'
 import type { RunManifest } from '../shared/run'
 
@@ -14,7 +14,7 @@ export const fixtureRunId = '40000000-0000-4000-8000-000000000001'
 export function createRunFixture(executionMode: ExecutionMode = 'agent-loop'): {
   manifest: RunManifest
   component: ComponentRecord
-  version: AgentVersion
+  version: MaterializedAgentVersion
 } {
   const component: ComponentRecord = {
     id: builtInComponents[0].id,
@@ -30,7 +30,7 @@ export function createRunFixture(executionMode: ExecutionMode = 'agent-loop'): {
     owners: [],
   })
   if (compilation.status !== 'ready') throw new Error('Run test fixture must compile.')
-  const version: AgentVersion = {
+  const version: MaterializedAgentVersion = {
     id: fixtureVersionId,
     agentId: fixtureAgentId,
     versionNumber: 1,

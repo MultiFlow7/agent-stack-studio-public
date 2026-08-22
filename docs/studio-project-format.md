@@ -42,3 +42,9 @@
 - `studio project audit --json` 使用只读且不自动恢复的路径；失败返回 `PROJECT_INTEGRITY_FAILED`。
 - 普通 inspect 和 GUI 可以恢复已通过同一审计的 `.agent-stack.backup`。恢复前保留 `.agent-stack.invalid-*`，GUI 必须提示人工比较。
 - 本地 SHA-256 证明快照与已记录哈希一致，但不证明作者身份。能够同时改写快照与哈希的攻击者不在该机制的保证范围内。
+
+## Agent-first 引用边界
+
+一个打开的 `.agent-stack` 项目解释为一个可携 Agent Stack。Component Descriptor、Stack 顺序、Owner 决策、Workflow 和不可变 Version 都由该文件唯一承载；SQLite 只以稳定 Agent ID 引用项目 ID、路径、revision 和不可变 Version ID，不复制项目内容。
+
+`project validate`、`stack validate` 和 Agent 组装器都从同一 Core 计算兼容性评估。评估是可重建的验证结果，不要求用户手工编辑 JSON；外部文件的 revision 与完整性仍在每次写入前复核。

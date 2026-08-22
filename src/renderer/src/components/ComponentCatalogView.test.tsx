@@ -56,6 +56,14 @@ function installComponentApi(options?: {
 }
 
 describe('ComponentCatalogView', () => {
+  it('opens a command-center component destination directly', async () => {
+    const { get } = installComponentApi()
+    render(<ComponentCatalogView initialComponentId={item.component.id} />)
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith(item.component.id))
+    expect(await screen.findByRole('heading', { name: 'Manifest 与来源' })).toBeVisible()
+  })
+
   it('shows the local empty state after the catalog finishes loading', async () => {
     installComponentApi({ catalog: vi.fn(() => Promise.resolve([])) })
     render(<ComponentCatalogView />)
@@ -115,5 +123,94 @@ describe('ComponentCatalogView', () => {
     expect(await screen.findByText('详情读取失败。')).toBeVisible()
     await user.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => expect(screen.getByText('Manifest 与来源')).toBeVisible())
+  })
+
+  it('keeps a cancelled import unchanged and makes a completed import immediately selectable', async () => {
+    const catalog = vi
+      .fn<StudioApi['components']['catalog']>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([item])
+    installComponentApi({ catalog })
+    const current = {
+      project: { revision: 2 },
+    } as Awaited<ReturnType<NonNullable<StudioApi['studioProject']>['current']>>
+    const importComponent = vi
+      .fn<NonNullable<StudioApi['studioProject']>['importComponent']>()
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce({ project: { revision: 3 } } as never)
+    window.studio.studioProject = {
+      current: vi.fn().mockResolvedValue(current),
+      importComponent,
+    } as unknown as NonNullable<StudioApi['studioProject']>
+    const user = userEvent.setup()
+    render(<ComponentCatalogView />)
+
+    await user.click(await screen.findByRole('button', { name: '导入第一个组件' }))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '导入第一个组件' }))
+    expect(
+      await screen.findByText('组件已静态导入，现在可以在 Agent 的 Stack 中选择。'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: /本地 Harness X/ })).toBeVisible()
+  })
+
+  it('updates structured Descriptor fields without upgrading evidence and confirms removal', async () => {
+    installComponentApi()
+    const current = {
+      project: { revision: 4 },
+    } as Awaited<ReturnType<NonNullable<StudioApi['studioProject']>['current']>>
+    const updateDescriptor = vi
+      .fn<NonNullable<StudioApi['studioProject']>['updateDescriptor']>()
+      .mockResolvedValue(current)
+    const archiveComponent = vi
+      .fn<NonNullable<StudioApi['studioProject']>['archiveComponent']>()
+      .mockResolvedValue(current)
+    const deleteComponent = vi
+      .fn<NonNullable<StudioApi['studioProject']>['deleteComponent']>()
+      .mockResolvedValue(current)
+    window.studio.studioProject = {
+      current: vi.fn().mockResolvedValue(current),
+      updateDescriptor,
+      archiveComponent,
+      deleteComponent,
+    } as unknown as NonNullable<StudioApi['studioProject']>
+    const user = userEvent.setup()
+    render(<ComponentCatalogView />)
+
+    await user.click(await screen.findByRole('button', { name: /本地 Harness X/ }))
+    await user.click(screen.getByRole('button', { name: '更新 Descriptor' }))
+    const name = screen.getByLabelText('名称')
+    await user.clear(name)
+    await user.type(name, '本地 Harness X 更新')
+    await user.click(screen.getByRole('button', { name: '保存 Descriptor' }))
+
+    await waitFor(() => expect(updateDescriptor).toHaveBeenCalledTimes(1))
+    const update = updateDescriptor.mock.calls[0]?.[0]
+    expect(update?.componentId).toBe(item.component.id)
+    expect(update?.expectedRevision).toBe(4)
+    expect(update?.descriptor.name).toBe('本地 Harness X 更新')
+    expect(update?.descriptor.compatibility.validation).toBe('runtime-verified')
+
+    await user.click(screen.getByRole('button', { name: '归档组件' }))
+    await waitFor(() =>
+      expect(archiveComponent).toHaveBeenCalledWith({
+        componentId: item.component.id,
+        expectedRevision: 4,
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: '移除组件' }))
+    await user.click(screen.getByRole('button', { name: '取消' }))
+    expect(deleteComponent).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: '移除组件' }))
+    await user.click(screen.getByRole('button', { name: '确认删除' }))
+    await waitFor(() =>
+      expect(deleteComponent).toHaveBeenCalledWith({
+        componentId: item.component.id,
+        expectedRevision: 4,
+      }),
+    )
+    expect(screen.queryByLabelText('组件详情')).not.toBeInTheDocument()
   })
 })

@@ -87,54 +87,86 @@ import {
   updateRendererPreferencesInputSchema,
 } from '../shared/preferences'
 import { projectExportResultSchema } from '../shared/agent-stack-package'
+import {
+  commandCenterSearchInputSchema,
+  commandCenterSearchResultSchema,
+  commandCenterSnapshotSchema,
+} from '../shared/command-center'
+
+const readRequests = new Map<string, Promise<unknown>>()
+
+function invokeCoalesced(channel: string, input: unknown): Promise<unknown> {
+  const key = `${channel}\0${JSON.stringify(input)}`
+  const existing = readRequests.get(key)
+  if (existing) return existing
+  const request = ipcRenderer.invoke(channel, input).finally(() => {
+    if (readRequests.get(key) === request) readRequests.delete(key)
+  })
+  readRequests.set(key, request)
+  return request
+}
+
+async function invokeMutation(channel: string, input?: unknown): Promise<unknown> {
+  readRequests.clear()
+  try {
+    return await ipcRenderer.invoke(channel, input)
+  } finally {
+    readRequests.clear()
+  }
+}
 
 async function invokeWithSanitizedError(
   channel: string,
   input: unknown,
   fallback: string,
+  coalesce = false,
+  invalidateReads = false,
 ): Promise<unknown> {
+  if (invalidateReads) readRequests.clear()
   try {
-    return await ipcRenderer.invoke(channel, input)
+    return await (coalesce ? invokeCoalesced(channel, input) : ipcRenderer.invoke(channel, input))
   } catch (error) {
     const message = error instanceof Error ? error.message : fallback
     throw new Error(message.replace(/^Error invoking remote method '[^']+': Error: /, ''))
+  } finally {
+    if (invalidateReads) readRequests.clear()
   }
 }
 
 function invokeLifecycle(channel: string, input: unknown): Promise<unknown> {
-  return invokeWithSanitizedError(channel, input, 'Agent 生命周期操作失败。')
+  return invokeWithSanitizedError(channel, input, 'Agent 生命周期操作失败。', false, true)
 }
 
 const api: StudioApi = {
   agents: {
     async create(input) {
       const parsedInput = createAgentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentsCreate, parsedInput)
+      const response = await invokeMutation(ipcChannels.agentsCreate, parsedInput)
       return agentSchema.parse(response)
     },
     async list(input) {
       const parsedInput = agentListInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentsList, parsedInput)
+      const response = await invokeCoalesced(ipcChannels.agentsList, parsedInput)
       return agentListSchema.parse(response)
     },
     async get(id) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentsGet, { id })
+      const response = await invokeCoalesced(ipcChannels.agentsGet, { id })
       return agentDetailSchema.parse(response)
     },
     async statusList(input) {
       const parsedInput = agentListInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentStatusList, parsedInput)
+      const response = await invokeCoalesced(ipcChannels.agentStatusList, parsedInput)
       return agentStatusListSchema.parse(response)
     },
     async status(agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentStatusGet, {
+      const response = await invokeCoalesced(ipcChannels.agentStatusGet, {
         id: agentId,
       })
       return agentStatusProjectionSchema.parse(response)
     },
     async update(input) {
       const parsedInput = updateAgentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentsUpdate, parsedInput)
+      const response = await invokeMutation(ipcChannels.agentsUpdate, parsedInput)
       return agentDetailSchema.parse(response)
     },
     async duplicate(input) {
@@ -159,7 +191,7 @@ const api: StudioApi = {
       return deleteAgentResultSchema.parse(response)
     },
     async createVersion(agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.agentVersionsCreate, {
+      const response = await invokeMutation(ipcChannels.agentVersionsCreate, {
         id: agentId,
       })
       return agentVersionSchema.parse(response)
@@ -167,128 +199,122 @@ const api: StudioApi = {
   },
   secrets: {
     async list(agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.secretsList, { agentId })
+      const response = await invokeCoalesced(ipcChannels.secretsList, { agentId })
       return secretReferenceStatusListSchema.parse(response)
     },
     async configure(input) {
       const parsedInput = configureAgentSecretInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.secretsConfigure, parsedInput)
+      const response = await invokeMutation(ipcChannels.secretsConfigure, parsedInput)
       return configureAgentSecretResultSchema.parse(response)
     },
     async delete(input) {
       const parsedInput = deleteAgentSecretInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.secretsDelete, parsedInput)
+      const response = await invokeMutation(ipcChannels.secretsDelete, parsedInput)
       return deleteAgentSecretResultSchema.parse(response)
     },
   },
   imports: {
     async selectAndScan() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.importsSelectAndScan)
+      const response = await invokeMutation(ipcChannels.importsSelectAndScan)
       return importScanResultSchema.parse(response)
     },
     async confirm(scanId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.importsConfirm, { scanId })
+      const response = await invokeMutation(ipcChannels.importsConfirm, { scanId })
       return agentDetailSchema.parse(response)
     },
   },
   components: {
     async list() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.componentsList)
+      const response = await invokeCoalesced(ipcChannels.componentsList, undefined)
       return componentListSchema.parse(response)
     },
     async catalog() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.componentsCatalog)
+      const response = await invokeCoalesced(ipcChannels.componentsCatalog, undefined)
       return componentCatalogSchema.parse(response)
     },
     async get(componentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.componentsGet, {
+      const response = await invokeCoalesced(ipcChannels.componentsGet, {
         id: componentId,
       })
       return componentCatalogItemSchema.parse(response)
     },
     async getStack(agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.stackComponentsGet, {
+      const response = await invokeCoalesced(ipcChannels.stackComponentsGet, {
         id: agentId,
       })
       return stackStateSchema.parse(response)
     },
     async addToStack(input) {
       const parsedInput = addStackComponentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.stackComponentsAdd,
-        parsedInput,
-      )
+      const response = await invokeMutation(ipcChannels.stackComponentsAdd, parsedInput)
       return stackStateSchema.parse(response)
     },
     async removeFromStack(input) {
       const parsedInput = removeStackComponentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.stackComponentsRemove,
-        parsedInput,
-      )
+      const response = await invokeMutation(ipcChannels.stackComponentsRemove, parsedInput)
       return stackStateSchema.parse(response)
     },
     async selectOwner(input) {
       const parsedInput = selectCapabilityOwnerInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.stackOwnersSelect, parsedInput)
+      const response = await invokeMutation(ipcChannels.stackOwnersSelect, parsedInput)
       return stackStateSchema.parse(response)
     },
   },
   runs: {
     async start(input) {
       const parsedInput = startRunInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.runsStart, parsedInput)
+      const response = await invokeMutation(ipcChannels.runsStart, parsedInput)
       return runRecordSchema.parse(response)
     },
     async list(agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.runsList, { agentId })
+      const response = await invokeCoalesced(ipcChannels.runsList, { agentId })
       return runListSchema.parse(response)
     },
     async get(runId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.runsGet, { id: runId })
+      const response = await invokeCoalesced(ipcChannels.runsGet, { id: runId })
       return runHistoryDetailSchema.parse(response)
     },
     async cancel(runId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.runsCancel, { id: runId })
+      const response = await invokeMutation(ipcChannels.runsCancel, { id: runId })
       return runHistoryDetailSchema.parse(response)
     },
   },
   experiments: {
     async create(input) {
       const parsedInput = createExperimentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsCreate, parsedInput)
+      const response = await invokeMutation(ipcChannels.experimentsCreate, parsedInput)
       return experimentDetailSchema.parse(response)
     },
     async list(agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsList, { agentId })
+      const response = await invokeCoalesced(ipcChannels.experimentsList, { agentId })
       return experimentListSchema.parse(response)
     },
     async get(experimentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsGet, {
+      const response = await invokeCoalesced(ipcChannels.experimentsGet, {
         id: experimentId,
       })
       return experimentDetailSchema.parse(response)
     },
     async refreshDrift(experimentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsDrift, {
+      const response = await invokeMutation(ipcChannels.experimentsDrift, {
         id: experimentId,
       })
       return experimentDetailSchema.parse(response)
     },
     async start(experimentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsStart, {
+      const response = await invokeMutation(ipcChannels.experimentsStart, {
         id: experimentId,
       })
       return experimentDetailSchema.parse(response)
     },
     async cancel(experimentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsCancel, {
+      const response = await invokeMutation(ipcChannels.experimentsCancel, {
         id: experimentId,
       })
       return experimentDetailSchema.parse(response)
     },
     async export(experimentId, format) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.experimentsExport, {
+      const response = await invokeMutation(ipcChannels.experimentsExport, {
         id: experimentId,
         format,
       })
@@ -297,21 +323,21 @@ const api: StudioApi = {
   },
   publishing: {
     async targets() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.publishTargetsList)
+      const response = await invokeCoalesced(ipcChannels.publishTargetsList, undefined)
       return publishTargetsSchema.parse(response)
     },
     async preview(input) {
       const parsedInput = publishPreviewInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.publishPreview, parsedInput)
+      const response = await invokeCoalesced(ipcChannels.publishPreview, parsedInput)
       return publishPreviewSchema.parse(response)
     },
     async publish(input) {
       const parsedInput = publishExecuteInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.publishExecute, parsedInput)
+      const response = await invokeMutation(ipcChannels.publishExecute, parsedInput)
       return publishResultSchema.parse(response)
     },
     async history(targetId, agentId) {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.publishHistory, {
+      const response = await invokeCoalesced(ipcChannels.publishHistory, {
         targetId,
         agentId,
       })
@@ -320,103 +346,106 @@ const api: StudioApi = {
   },
   maintenance: {
     async status() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.maintenanceStatus, {})
+      const response = await invokeCoalesced(ipcChannels.maintenanceStatus, {})
       return maintenanceStatusSchema.parse(response)
     },
     async createBackup() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.maintenanceCreateBackup, {})
+      const response = await invokeMutation(ipcChannels.maintenanceCreateBackup, {})
       return createBackupResultSchema.parse(response)
     },
     async selectRestore() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.maintenanceSelectRestore, {})
+      const response = await invokeMutation(ipcChannels.maintenanceSelectRestore, {})
       return selectRestoreResultSchema.parse(response)
     },
     async applyRestore(input) {
       const parsedInput = applyRestoreInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.maintenanceApplyRestore,
-        parsedInput,
-      )
+      const response = await invokeMutation(ipcChannels.maintenanceApplyRestore, parsedInput)
       return applyRestoreResultSchema.parse(response)
     },
     async revealDataLocation(input) {
       const parsedInput = revealDataLocationInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.maintenanceRevealDataLocation,
-        parsedInput,
-      )
+      const response = await invokeMutation(ipcChannels.maintenanceRevealDataLocation, parsedInput)
       return revealDataLocationResultSchema.parse(response)
     },
   },
   preferences: {
     async get() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.preferencesGet, {})
+      const response = await invokeCoalesced(ipcChannels.preferencesGet, {})
       return rendererPreferencesSchema.parse(response)
     },
     async update(input) {
       const parsedInput = updateRendererPreferencesInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.preferencesUpdate, parsedInput)
+      const response = await invokeMutation(ipcChannels.preferencesUpdate, parsedInput)
       return rendererPreferencesSchema.parse(response)
+    },
+  },
+  commandCenter: {
+    async snapshot() {
+      const response: unknown = await invokeWithSanitizedError(
+        ipcChannels.commandCenterSnapshot,
+        {},
+        '无法读取工作空间状态。',
+        true,
+      )
+      return commandCenterSnapshotSchema.parse(response)
+    },
+    async search(input) {
+      const parsed = commandCenterSearchInputSchema.parse(input)
+      const response: unknown = await invokeWithSanitizedError(
+        ipcChannels.commandCenterSearch,
+        parsed,
+        '无法搜索本地工作空间。',
+        true,
+      )
+      return commandCenterSearchResultSchema.parse(response)
     },
   },
   studioProject: {
     async current() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectCurrent, {})
+      const response = await invokeCoalesced(ipcChannels.studioProjectCurrent, {})
       return studioProjectStateSchema.parse(response)
     },
     async open() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectOpen, {})
+      const response = await invokeMutation(ipcChannels.studioProjectOpen, {})
       return studioProjectStateSchema.parse(response)
     },
     async init() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectInit, {})
+      const response = await invokeMutation(ipcChannels.studioProjectInit, {})
       return studioProjectStateSchema.parse(response)
     },
     async importComponent(expectedRevision) {
       const input = projectMutationInputSchema.parse({ expectedRevision })
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectImport, input)
+      const response = await invokeMutation(ipcChannels.studioProjectImport, input)
       return studioProjectStateSchema.parse(response)
     },
     async updateDescriptor(input) {
       const parsed = projectDescriptorInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.studioProjectDescriptorUpdate,
-        parsed,
-      )
+      const response = await invokeMutation(ipcChannels.studioProjectDescriptorUpdate, parsed)
       return studioProjectStateSchema.parse(response)
     },
     async archiveComponent(input) {
       const parsed = projectComponentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.studioProjectComponentArchive,
-        parsed,
-      )
+      const response = await invokeMutation(ipcChannels.studioProjectComponentArchive, parsed)
       return studioProjectStateSchema.parse(response)
     },
     async deleteComponent(input) {
       const parsed = projectComponentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.studioProjectComponentDelete,
-        parsed,
-      )
+      const response = await invokeMutation(ipcChannels.studioProjectComponentDelete, parsed)
       return studioProjectStateSchema.parse(response)
     },
     async addToStack(input) {
       const parsed = projectComponentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectStackAdd, parsed)
+      const response = await invokeMutation(ipcChannels.studioProjectStackAdd, parsed)
       return studioProjectStateSchema.parse(response)
     },
     async removeFromStack(input) {
       const parsed = projectComponentInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(
-        ipcChannels.studioProjectStackRemove,
-        parsed,
-      )
+      const response = await invokeMutation(ipcChannels.studioProjectStackRemove, parsed)
       return studioProjectStateSchema.parse(response)
     },
     async setOwner(input) {
       const parsed = projectOwnerInputSchema.parse(input)
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectOwnerSet, parsed)
+      const response = await invokeMutation(ipcChannels.studioProjectOwnerSet, parsed)
       return studioProjectStateSchema.parse(response)
     },
     async createWorkflow(input) {
@@ -425,6 +454,8 @@ const api: StudioApi = {
         ipcChannels.studioProjectWorkflowCreate,
         parsed,
         '无法创建 Workflow。',
+        false,
+        true,
       )
       return studioProjectStateSchema.parse(response)
     },
@@ -434,6 +465,8 @@ const api: StudioApi = {
         ipcChannels.studioProjectWorkflowNodeAdd,
         parsed,
         '无法保存 Workflow 节点。',
+        false,
+        true,
       )
       return studioProjectStateSchema.parse(response)
     },
@@ -443,6 +476,8 @@ const api: StudioApi = {
         ipcChannels.studioProjectWorkflowNodeRemove,
         parsed,
         '无法删除 Workflow 节点。',
+        false,
+        true,
       )
       return studioProjectStateSchema.parse(response)
     },
@@ -452,6 +487,8 @@ const api: StudioApi = {
         ipcChannels.studioProjectWorkflowEdgeAdd,
         parsed,
         '无法保存 Workflow 连线。',
+        false,
+        true,
       )
       return studioProjectStateSchema.parse(response)
     },
@@ -461,6 +498,8 @@ const api: StudioApi = {
         ipcChannels.studioProjectWorkflowEdgeRemove,
         parsed,
         '无法删除 Workflow 连线。',
+        false,
+        true,
       )
       return studioProjectStateSchema.parse(response)
     },
@@ -470,20 +509,22 @@ const api: StudioApi = {
         ipcChannels.studioProjectWorkflowFreeze,
         parsed,
         '无法冻结 Workflow Version。',
+        false,
+        true,
       )
       return studioProjectStateSchema.parse(response)
     },
     async freeze(expectedRevision) {
       const input = projectMutationInputSchema.parse({ expectedRevision })
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectFreeze, input)
+      const response = await invokeMutation(ipcChannels.studioProjectFreeze, input)
       return studioProjectStateSchema.parse(response)
     },
     async export() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.studioProjectExport, {})
+      const response = await invokeMutation(ipcChannels.studioProjectExport, {})
       return projectExportResultSchema.parse(response)
     },
     async loadDemoData() {
-      const response: unknown = await ipcRenderer.invoke(ipcChannels.demoDataLoad, {})
+      const response = await invokeMutation(ipcChannels.demoDataLoad, {})
       return componentListSchema.parse(response)
     },
     onExternalChanged(callback) {
