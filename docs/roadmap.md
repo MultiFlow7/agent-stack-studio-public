@@ -387,3 +387,7 @@ CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取�
 - 以 Pi 执行 Owner + MRAgent memory/state-store 修正验证 unknown 处置，不执行 fixture 中的未知脚本。
 
 完成条件：Core/CLI/IPC/Preload/Renderer 共用闭环，结构表单的冲突/取消/审计有自动证据，受信子进程真实启停，最终 arm64 GUI 与包内 CLI、恢复/失败/取消/成功截图、隐私门禁和公开 CI 全部通过。
+
+本地实现状态：86 个测试文件 / 295 项测试、format/lint/typecheck/build、CLI/macOS 打包、包验证、真实 arm64 GUI 与包内 CLI、兼容失败/取消/成功、归档恢复、隐私扫描和无凭证 dry-run 均通过；发布报告 5 verified、3 skipped、2 disabled、0 blocked。
+
+远程证据：私有实现 `bbb6c79` 与公开快照 `bb21883` 共享 tree `93a030958c7aac06544433301a948a88b87d49c7`；公开 GitHub macOS CI run `32559072071` 成功，完成项目检查与 Intel macOS 应用打包检查。
