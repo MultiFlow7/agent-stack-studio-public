@@ -381,6 +381,7 @@ async function captureRunHistoryEvidence(client, screenshotPath) {
 }
 
 async function captureExperimentMatrixEvidence(client, screenshotPath) {
+  const experimentCellCount = 12
   await evaluate(
     client,
     `(() => {
@@ -405,6 +406,23 @@ async function captureExperimentMatrixEvidence(client, screenshotPath) {
     })()`,
   )
   await waitForExpression(client, "document.body.innerText.includes('定义对照实验')")
+  await evaluate(
+    client,
+    `(() => {
+      const field = [...document.querySelectorAll('.experiment-create label')].find(
+        (element) => element.textContent?.includes('每组重复次数')
+      )
+      const select = field?.querySelector('select')
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
+      setter?.call(select, '3')
+      select?.dispatchEvent(new Event('change', { bubbles: true }))
+      return Boolean(select)
+    })()`,
+  )
+  await waitForExpression(
+    client,
+    `document.querySelector('.experiment-create')?.textContent?.includes('${experimentCellCount} 个运行单元')`,
+  )
   await evaluate(
     client,
     `(() => {
@@ -459,7 +477,7 @@ async function captureExperimentMatrixEvidence(client, screenshotPath) {
   if (!requestedCancellation) throw new Error('Experiment 取消按钮不可用。')
   await waitForExpression(
     client,
-    "Boolean(document.querySelector('.experiment-status--cancelled')) && document.querySelectorAll('.cell-status--succeeded, .cell-status--cancelled').length === 4 && document.querySelectorAll('.cell-status--succeeded').length >= 1 && document.querySelectorAll('.cell-status--cancelled').length >= 1",
+    `Boolean(document.querySelector('.experiment-status--cancelled')) && document.querySelectorAll('.cell-status--succeeded, .cell-status--cancelled').length === ${experimentCellCount} && document.querySelectorAll('.cell-status--succeeded').length >= 1 && document.querySelectorAll('.cell-status--cancelled').length >= 1`,
   )
   const outcome = await evaluate(
     client,
@@ -471,7 +489,7 @@ async function captureExperimentMatrixEvidence(client, screenshotPath) {
   if (
     outcome.succeeded < 1 ||
     outcome.cancelled < 1 ||
-    outcome.succeeded + outcome.cancelled !== 4
+    outcome.succeeded + outcome.cancelled !== experimentCellCount
   ) {
     throw new Error(`Experiment 取消后没有形成部分结果：${JSON.stringify(outcome)}`)
   }
@@ -487,19 +505,19 @@ async function captureExperimentMatrixEvidence(client, screenshotPath) {
   )
   await waitForExpression(
     client,
-    `document.body.innerText.includes('显示 ${outcome.cancelled} / 4 个单元')`,
+    `document.body.innerText.includes('显示 ${outcome.cancelled} / ${experimentCellCount} 个单元')`,
   )
   const state = await evaluate(
     client,
     `({
       hasCancelledStatus: document.body.innerText.includes('已取消'),
-      hasTerminalProgress: document.body.innerText.includes('4 / 4'),
+      hasTerminalProgress: document.body.innerText.includes('${experimentCellCount} / ${experimentCellCount}'),
       hasOutcomeSummary: document.body.innerText.includes('${outcome.succeeded} / ${outcome.cancelled}'),
-      hasSuccessRate: document.body.innerText.includes('${outcome.succeeded * 25}%'),
+      hasSuccessRate: document.body.innerText.includes('${Math.round((outcome.succeeded / experimentCellCount) * 100)}%'),
       hasDefinition: document.body.innerText.includes('runtime-duration-v1'),
       hasDrift: document.body.innerText.includes('Drift Check 通过'),
       hasFailureReason: document.body.innerText.includes('实验已取消。'),
-      hasIssueFilter: document.body.innerText.includes('显示 ${outcome.cancelled} / 4 个单元')
+      hasIssueFilter: document.body.innerText.includes('显示 ${outcome.cancelled} / ${experimentCellCount} 个单元')
     })`,
   )
   if (Object.values(state).some((value) => !value)) {
@@ -527,7 +545,17 @@ async function captureExperimentMatrixEvidence(client, screenshotPath) {
   )
   await waitForExpression(
     client,
-    "document.body.innerText.includes('基础对比') && document.body.innerText.includes('相对基准') && document.body.innerText.includes('100% (1/1)')",
+    `(() => {
+      const rows = [...document.querySelectorAll('.experiment-comparison tbody tr')]
+      const succeededRuns = rows.reduce((total, row) => {
+        const match = row.querySelector('td:nth-child(2)')?.textContent?.match(/\\((\\d+)\\/${experimentCellCount / 4}\\)/)
+        return total + Number(match?.[1] ?? 0)
+      }, 0)
+      return document.body.innerText.includes('基础对比') &&
+        document.body.innerText.includes('相对基准') &&
+        rows.length === 4 &&
+        succeededRuns === ${outcome.succeeded}
+    })()`,
   )
   await delay(200)
   const comparisonScreenshot = await client.send('Page.captureScreenshot', { format: 'png' })
