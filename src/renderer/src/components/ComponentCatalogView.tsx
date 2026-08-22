@@ -115,7 +115,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
     ): Promise<boolean> => {
       setPending(operation ? `${componentId}:${operation}` : componentId)
       setDetailError(undefined)
-      setFeedback(undefined)
+      setFeedback(operation === 'recheck' ? '正在重新静态检查，不会执行组件代码…' : undefined)
       try {
         const current = await window.studio.studioProject!.current()
         if (!current.project) throw new Error('请先在顶栏打开或创建一个项目。')
@@ -215,7 +215,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
         </div>
       </header>
 
-      {feedback ? (
+      {feedback && !selectedId ? (
         <div className="detail-feedback" role="status">
           {feedback}
         </div>
@@ -463,15 +463,13 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
               </button>
             </div>
           ) : null}
-          {detailStatus === 'ready' && detailError ? (
-            <div className="detail-feedback detail-feedback--error" role="alert">
-              {detailError}
-            </div>
-          ) : null}
           {detailStatus === 'ready' && detail ? (
             <ComponentDetail
+              error={detailError}
+              feedback={feedback}
               item={detail}
               pending={Boolean(pending?.startsWith(detail.component.id))}
+              pendingOperation={pending?.startsWith(detail.component.id) ? pending : undefined}
               runtimePending={pending === `${detail.component.id}:runtime`}
               onArchive={() =>
                 mutateComponent(
@@ -580,7 +578,10 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
 function ComponentDetail({
   item,
   pending,
+  pendingOperation,
   runtimePending,
+  feedback,
+  error,
   onArchive,
   onRestore,
   onDelete,
@@ -592,7 +593,10 @@ function ComponentDetail({
 }: {
   item: ComponentCatalogItem
   pending: boolean
+  pendingOperation?: string
   runtimePending: boolean
+  feedback?: string
+  error?: string
   onArchive: () => Promise<boolean>
   onRestore: () => Promise<boolean>
   onDelete: () => Promise<boolean>
@@ -622,6 +626,19 @@ function ComponentDetail({
   }
   return (
     <div className="component-detail">
+      {error ? (
+        <div className="component-operation-feedback detail-feedback--error" role="alert">
+          {error}
+        </div>
+      ) : feedback ? (
+        <div
+          aria-busy={pendingOperation?.endsWith(':recheck') || undefined}
+          className="component-operation-feedback"
+          role="status"
+        >
+          {feedback}
+        </div>
+      ) : null}
       <header>
         <span className="eyebrow">Component Contract v{descriptor.contractVersion}</span>
         <h2>{descriptor.name}</h2>
@@ -833,12 +850,21 @@ function ComponentDetail({
                       </details>
                     ) : (
                       <button
+                        aria-busy={
+                          action.action === 'recheck-static' &&
+                          pendingOperation?.endsWith(':recheck')
+                            ? true
+                            : undefined
+                        }
                         className="button button--secondary"
                         disabled={pending || !action.enabled}
                         onClick={() => executeAssessmentAction(action)}
                         type="button"
                       >
-                        {action.label}
+                        {action.action === 'recheck-static' &&
+                        pendingOperation?.endsWith(':recheck')
+                          ? '正在静态检查…'
+                          : action.label}
                       </button>
                     )}
                   </li>

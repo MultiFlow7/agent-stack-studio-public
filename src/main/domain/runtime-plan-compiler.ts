@@ -53,12 +53,15 @@ export function compileRuntimePlan(input: CompileRuntimePlanInput): RuntimePlanC
         componentId: component.id,
         message: `${component.descriptor.name} 不兼容：${assessment.blockers.join('；')}`,
       })
-    } else if (assessment.status === 'unchecked') {
+    } else if (assessment.status === 'unchecked' || assessment.status === 'evidence-required') {
       issues.push({
         code: 'COMPATIBILITY_UNKNOWN',
         capability: null,
         componentId: component.id,
-        message: `${component.descriptor.name} 未完成兼容性检查：${assessment.blockers.join('；')}`,
+        message:
+          assessment.status === 'evidence-required'
+            ? `${component.descriptor.name} 已完成静态检查，但机器证据仍不足：${assessment.blockers.join('；')}`
+            : `${component.descriptor.name} 未完成兼容性检查：${assessment.blockers.join('；')}`,
       })
     } else if (assessment.status === 'adapter-required') {
       remediationTasks.push(

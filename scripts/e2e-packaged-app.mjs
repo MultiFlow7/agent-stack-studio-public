@@ -2441,7 +2441,7 @@ export async function runPackagedAppE2e(options = {}) {
     )
     await waitForExpression(
       client,
-      "document.body.innerText.includes('不是等待用户点击确认') && document.body.innerText.includes('能力替换边界')",
+      "document.body.innerText.includes('静态检查已完成，但不能据此判定兼容') && document.body.innerText.includes('能力替换边界')",
     )
     await evaluate(
       client,

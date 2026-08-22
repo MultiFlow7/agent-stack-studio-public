@@ -1041,7 +1041,10 @@ export class StudioCore {
       assessComponentCompatibility({
         componentId: component.id,
         descriptor: component.descriptor,
-        checkedAt,
+        checkedAt:
+          [...component.descriptor.evidence].reverse().find(({ recordedAt }) => recordedAt)
+            ?.recordedAt ?? component.source.inspectedAt,
+        staticInspection: { completedAt: component.source.inspectedAt },
       }),
     )
     if (components.length === 0) {
@@ -1077,11 +1080,14 @@ export class StudioCore {
           capability: null,
           suggestedActions: validationAction('COMPONENT_BLOCKED'),
         })
-      } else if (assessment.status === 'unchecked') {
+      } else if (assessment.status === 'unchecked' || assessment.status === 'evidence-required') {
         issues.push({
           severity: 'error',
           code: 'COMPATIBILITY_UNKNOWN',
-          message: `${component.descriptor.name} 未完成兼容性检查：${assessment.blockers.join('；')}`,
+          message:
+            assessment.status === 'evidence-required'
+              ? `${component.descriptor.name} 已完成静态检查，但机器证据仍不足：${assessment.blockers.join('；')}`
+              : `${component.descriptor.name} 未完成兼容性检查：${assessment.blockers.join('；')}`,
           componentId: component.id,
           capability: null,
           suggestedActions: validationAction('COMPATIBILITY_UNKNOWN'),

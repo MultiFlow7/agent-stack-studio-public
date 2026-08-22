@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { builtInComponents } from '../../../main/components/built-in-components'
 import type { ComponentCatalogItem } from '../../../shared/component-catalog'
 import type { StudioApi } from '../../../shared/ipc'
+import { assessComponentCompatibility } from '../../../shared/compatibility-assessment'
 import { ComponentCatalogView } from './ComponentCatalogView'
 
 const item: ComponentCatalogItem = {
@@ -221,6 +222,82 @@ describe('ComponentCatalogView', () => {
       }),
     )
     expect(screen.queryByLabelText('组件详情')).not.toBeInTheDocument()
+  })
+
+  it('shows in-place progress and the refreshed machine-evidence state after a static recheck', async () => {
+    const descriptor = {
+      ...item.component.descriptor,
+      runtimeAdapter: null,
+      evidence: [],
+      compatibility: {
+        level: 'unknown' as const,
+        validation: 'declared' as const,
+        detail: '缺少能力替换边界、契约测试和受信运行证据。',
+      },
+    }
+    const uncheckedItem: ComponentCatalogItem = {
+      ...item,
+      component: { ...item.component, descriptor },
+      assessment: assessComponentCompatibility({
+        componentId: item.component.id,
+        descriptor,
+        checkedAt: '2026-08-22T10:00:00.000Z',
+        platform: 'darwin-arm64',
+      }),
+    }
+    const checkedItem: ComponentCatalogItem = {
+      ...uncheckedItem,
+      assessment: assessComponentCompatibility({
+        componentId: item.component.id,
+        descriptor,
+        checkedAt: '2026-08-22T10:01:00.000Z',
+        staticInspection: { completedAt: '2026-08-22T10:01:00.000Z' },
+        platform: 'darwin-arm64',
+      }),
+    }
+    let checked = false
+    let finishRecheck: (() => void) | undefined
+    installComponentApi({
+      catalog: vi.fn(() => Promise.resolve([checked ? checkedItem : uncheckedItem])),
+      get: vi.fn(() => Promise.resolve(checked ? checkedItem : uncheckedItem)),
+    })
+    const current = {
+      project: { revision: 9 },
+    } as Awaited<ReturnType<NonNullable<StudioApi['studioProject']>['current']>>
+    const recheckComponent = vi
+      .fn<NonNullable<StudioApi['studioProject']>['recheckComponent']>()
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishRecheck = () => {
+              checked = true
+              resolve({ project: { revision: 10 } } as never)
+            }
+          }),
+      )
+    window.studio.studioProject = {
+      current: vi.fn().mockResolvedValue(current),
+      recheckComponent,
+    } as unknown as NonNullable<StudioApi['studioProject']>
+    const user = userEvent.setup()
+    render(<ComponentCatalogView />)
+
+    await user.click(await screen.findByRole('button', { name: /本地 Harness X/ }))
+    await user.click(screen.getByRole('button', { name: '重新静态检查' }))
+
+    expect(screen.getByRole('button', { name: '正在静态检查…' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('正在重新静态检查')
+    expect(recheckComponent).toHaveBeenCalledWith({
+      componentId: item.component.id,
+      expectedRevision: 9,
+    })
+
+    finishRecheck?.()
+    expect(await screen.findByText('静态检查已完成，未执行组件代码。')).toBeVisible()
+    expect(screen.getByText('静态检查完成，机器证据不足')).toBeVisible()
   })
 
   it('edits the complete capability contract with schema validation and cancel zero-write', async () => {

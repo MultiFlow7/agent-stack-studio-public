@@ -141,7 +141,7 @@ Component 的可移植定义由 `.agent-stack` 保存。SQLite 只保留本机�
 
 ## 12. M30 兼容性评估
 
-Studio Core 对当前 Stack 的每个 Component 输出 `CompatibilityAssessment`：用户状态为未检查、静态通过、需配置、需 Adapter、运行验证通过或不兼容。结论带稳定证据、阻断原因、`suggestedActions`、验证时间和验证方法；GUI 与 CLI 必须显示同一 Core 结果。
+Studio Core 对当前 Stack 的每个 Component 输出 `CompatibilityAssessment`：用户状态为未检查、静态检查完成但机器证据不足、静态通过、需配置、需 Adapter、运行验证通过或不兼容。“未检查”只用于没有静态检查记录的组件；只要安全扫描已完成，即使仍缺能力边界、处置策略、契约测试或受信运行证据，也必须显示“静态检查完成，机器证据不足”，不得让用户误以为按钮没有生效。结论带稳定证据、阻断原因、`suggestedActions`、验证时间和验证方法；GUI 与 CLI 必须显示同一 Core 结果。
 
 项目的 `components`、`stack`、`owners`、`workflows` 和 `versions` 都只在 `.agent-stack` 中读写。SQLite 中的历史 Component/Stack/Owner/Version 只作一次性迁移输入；迁移完成后本机 Agent 只保留对项目和不可变项目 Version 的稳定引用。
 

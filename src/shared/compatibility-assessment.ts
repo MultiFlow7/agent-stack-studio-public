@@ -3,6 +3,7 @@ import type { ComponentDescriptor } from './component'
 
 export const compatibilityAssessmentStatusSchema = z.enum([
   'unchecked',
+  'evidence-required',
   'static-passed',
   'configuration-required',
   'adapter-required',
@@ -82,6 +83,7 @@ export function assessComponentCompatibility(input: {
   componentId: string
   descriptor: ComponentDescriptor
   checkedAt: string
+  staticInspection?: { completedAt: string }
   platform?: 'darwin-arm64' | 'darwin-x64'
 }): CompatibilityAssessment {
   const platform = input.platform ?? (process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64')
@@ -239,8 +241,10 @@ export function assessComponentCompatibility(input: {
       detail: descriptor.compatibility.detail,
     })
   } else if (descriptor.compatibility.level === 'unknown') {
-    status = 'unchecked'
-    explanation = `不是等待用户点击确认；当前${blockers.join('、')}`
+    status = input.staticInspection ? 'evidence-required' : 'unchecked'
+    explanation = input.staticInspection
+      ? `静态检查已完成，但不能据此判定兼容；当前${blockers.join('、')}`
+      : `尚未完成静态检查；这不是等待用户点击确认。当前${blockers.join('、')}`
     suggestedActions.push(
       makeAction(input.componentId, {
         action: 'recheck-static',
@@ -294,6 +298,7 @@ export function assessComponentCompatibility(input: {
 
   if (
     status !== 'unchecked' &&
+    status !== 'evidence-required' &&
     status !== 'incompatible' &&
     descriptor.compatibility.validation === 'declared'
   ) {

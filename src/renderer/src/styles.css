@@ -2500,6 +2500,28 @@ kbd {
   gap: 26px;
 }
 
+.component-operation-feedback {
+  position: sticky;
+  z-index: 3;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 10px 12px;
+  border: 1px solid #bbd5bc;
+  border-radius: var(--radius-control);
+  color: #2f6534;
+  background: #eff8f0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.component-operation-feedback.detail-feedback--error {
+  border-color: #e2bcbc;
+  color: #852828;
+  background: #fff2f2;
+}
+
 .component-detail > header {
   padding-bottom: 20px;
   border-bottom: 1px solid var(--border);

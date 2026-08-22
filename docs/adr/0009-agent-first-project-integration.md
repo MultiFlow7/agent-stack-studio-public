@@ -43,7 +43,7 @@ SQLite v9 adds `agent_project_links`. Local Agent identities reference a stable 
 
 GUI and CLI continue to share Studio Core. Renderer has no Node, filesystem, database or secret access; all Main calls remain schema-validated and allowlisted. Cordis stays inside a new Runtime child process. Static inspection never executes imported code.
 
-Compatibility uses a shared, explainable assessment with the user-facing states unchecked, static passed, configuration required, Adapter required, runtime verified and incompatible. Each result contains evidence, blockers, suggested actions, time and method. Descriptor editing preserves its evidence level. Only explicit trust, permission or Owner decisions may create human audit records.
+Compatibility uses a shared, explainable assessment with the user-facing states unchecked, static inspection complete but machine evidence required, static passed, configuration required, Adapter required, runtime verified and incompatible. `unchecked` is reserved for components with no static-inspection record; completing a safe scan changes the workflow state without upgrading validation evidence. Each result contains evidence, blockers, suggested actions, time and method. Descriptor editing preserves its evidence level. Only explicit trust, permission or Owner decisions may create human audit records.
 
 ## Migration
 

@@ -70,6 +70,31 @@ describe('compatibility assessment', () => {
     expect(result.evidence.some(({ kind }) => kind === 'entrypoint')).toBe(true)
   })
 
+  it('distinguishes a completed static inspection from a component that was never checked', () => {
+    const descriptor = {
+      ...base,
+      runtimeAdapter: null,
+      evidence: [],
+      compatibility: {
+        level: 'unknown' as const,
+        validation: 'declared' as const,
+        detail: '待处置。',
+      },
+    }
+    const result = assessComponentCompatibility({
+      componentId,
+      descriptor,
+      checkedAt,
+      staticInspection: { completedAt: checkedAt },
+      platform: 'darwin-arm64',
+    })
+
+    expect(result.status).toBe('evidence-required')
+    expect(result.explanation).toContain('静态检查已完成')
+    expect(result.explanation).toContain('机器证据不足')
+    expect(result.suggestedActions.map(({ action }) => action)).toContain('recheck-static')
+  })
+
   it('maps legacy user-confirmed evidence to a preserved human decision without technical uplift', () => {
     const result = assess({
       ...base,

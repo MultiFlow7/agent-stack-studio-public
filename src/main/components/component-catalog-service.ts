@@ -76,6 +76,7 @@ export class ComponentCatalogService {
           ? this.#projects?.activeComposition(activeAgentId)?.project
           : null
         const activeAgent = agentDetails.find(({ agent }) => agent.id === activeAgentId)
+        const projectComponent = activeProject?.components.find(({ id }) => id === component.id)
         const projectAffectedVersions =
           activeProject && activeAgent
             ? activeProject.versions
@@ -101,7 +102,10 @@ export class ComponentCatalogService {
             ? assessComponentCompatibility({
                 componentId: component.id,
                 descriptor: component.descriptor,
-                checkedAt: new Date().toISOString(),
+                checkedAt:
+                  [...component.descriptor.evidence].reverse().find(({ recordedAt }) => recordedAt)
+                    ?.recordedAt ?? projectComponent!.source.inspectedAt,
+                staticInspection: { completedAt: projectComponent!.source.inspectedAt },
               })
             : null)
         return componentCatalogItemSchema.parse({
@@ -113,8 +117,7 @@ export class ComponentCatalogService {
               ? null
               : { status: validation, recordedAt: component.updatedAt },
           assessment: assessment ?? null,
-          auditTrail:
-            activeProject?.components.find(({ id }) => id === component.id)?.auditTrail ?? [],
+          auditTrail: projectComponent?.auditTrail ?? [],
         })
       }),
     )
