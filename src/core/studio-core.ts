@@ -350,7 +350,7 @@ export class StudioCore {
     options: ProjectMutationOptions & { sourcePath?: string } = {},
   ): Promise<ProjectReadResult> {
     const current = await this.inspectProject(rootPath)
-    this.#component(current.project, componentId)
+    const previous = this.#component(current.project, componentId)
     if (!options.sourcePath) {
       throw new StudioCoreError('COMPONENT_NOT_FOUND', '更新组件需要明确提供本地来源路径。', {
         suggestedActions: [
@@ -362,6 +362,15 @@ export class StudioCore {
       })
     }
     const inspection = await inspectComponentSource(options.sourcePath)
+    if (inspection.descriptor.id !== previous.descriptor.id) {
+      throw new StudioCoreError(
+        'COMPONENT_INVALID',
+        `选择的来源属于 ${inspection.descriptor.name}（${inspection.descriptor.id}），不是 ${previous.descriptor.name}（${previous.descriptor.id}）。`,
+        {
+          suggestedActions: [{ description: '重新选择与当前组件 Contract ID 一致的本地仓库。' }],
+        },
+      )
+    }
     return this.#mutate(rootPath, { expectedRevision: options.expectedRevision }, (project) => ({
       ...project,
       components: project.components.map((component) =>

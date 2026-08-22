@@ -237,4 +237,51 @@ describe('Studio Project export IPC', () => {
     ).resolves.toEqual({ cancelled: true })
     expect(cancelRuntimeValidation).toHaveBeenCalledWith(componentId)
   })
+
+  it('prompts to relink a missing component source and keeps cancellation write-free', async () => {
+    const componentId = randomUUID()
+    const state = {
+      projectPath: null,
+      localAgentId: null,
+      project: null,
+      validation: null,
+      integrity: null,
+      recovered: false,
+      changedExternally: false,
+      cliPath: '/trusted/studio.mjs',
+    }
+    const current = vi.fn().mockResolvedValue(state)
+    const componentSourcePath = vi.fn().mockResolvedValue(null)
+    const recheck = vi.fn().mockResolvedValue(state)
+    registerStudioProjectIpc({
+      projects: {
+        current,
+        componentSourcePath,
+        recheck,
+        onChanged: vi.fn().mockReturnValue(() => undefined),
+      } as unknown as StudioProjectService,
+      getWindow: () => undefined,
+    })
+
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRecheck)?.(trustedEvent, {
+        componentId,
+        expectedRevision: 11,
+      }),
+    ).resolves.toEqual(state)
+    expect(recheck).not.toHaveBeenCalled()
+
+    electron.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/trusted/sources/pi'],
+    })
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRecheck)?.(trustedEvent, {
+        componentId,
+        expectedRevision: 11,
+      }),
+    ).resolves.toEqual(state)
+    expect(recheck).toHaveBeenCalledWith(componentId, 11, '/trusted/sources/pi')
+  })
 })

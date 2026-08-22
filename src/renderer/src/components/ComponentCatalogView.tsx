@@ -21,6 +21,7 @@ import {
 } from '../copy'
 import { DescriptorEditor } from './DescriptorEditor'
 import type { CompatibilityAction } from '../../../shared/compatibility-assessment'
+import type { StudioProjectState } from '../../../shared/studio-project'
 
 type CatalogStatus = 'loading' | 'ready' | 'error'
 
@@ -107,7 +108,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
   const mutateComponent = useCallback(
     async (
       componentId: string,
-      action: (expectedRevision: number) => Promise<unknown>,
+      action: (expectedRevision: number) => Promise<StudioProjectState>,
       success: string,
       deleted = false,
       operation?: string,
@@ -118,10 +119,12 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
       try {
         const current = await window.studio.studioProject!.current()
         if (!current.project) throw new Error('请先在顶栏打开或创建一个项目。')
-        await action(current.project.revision)
+        const next = await action(current.project.revision)
+        const cancelled =
+          operation === 'recheck' && next.project?.revision === current.project.revision
         const nextItems = await window.studio.components.catalog()
         setItems(nextItems)
-        setFeedback(success)
+        setFeedback(cancelled ? '已取消重新关联，项目与兼容证据均未改动。' : success)
         if (deleted) {
           setSelectedId(undefined)
           setDetail(undefined)
@@ -513,6 +516,8 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
                       expectedRevision,
                     }),
                   '静态检查已完成，未执行组件代码。',
+                  false,
+                  'recheck',
                 )
               }
               onContractTest={() =>

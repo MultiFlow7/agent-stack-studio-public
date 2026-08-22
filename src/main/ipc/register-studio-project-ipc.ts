@@ -99,6 +99,22 @@ export function registerStudioProjectIpc(options: {
         ),
     }),
   )
+  ipcMain.handle(
+    ipcChannels.studioProjectComponentRecheck,
+    createValidatedHandler({
+      input: projectComponentInputSchema,
+      output: studioProjectStateSchema,
+      handle: async (input) => {
+        let sourcePath = await options.projects.componentSourcePath(input.componentId)
+        if (!sourcePath) {
+          const selection = await showDirectory('重新关联组件来源并执行静态检查', '关联并检查')
+          sourcePath = selection.filePaths[0]
+          if (selection.canceled || !sourcePath) return options.projects.current()
+        }
+        return options.projects.recheck(input.componentId, input.expectedRevision, sourcePath)
+      },
+    }),
+  )
   for (const [channel, handle] of [
     [
       ipcChannels.studioProjectComponentArchive,
@@ -109,11 +125,6 @@ export function registerStudioProjectIpc(options: {
       ipcChannels.studioProjectComponentRestore,
       (input: typeof projectComponentInputSchema._output) =>
         options.projects.restore(input.componentId, input.expectedRevision),
-    ],
-    [
-      ipcChannels.studioProjectComponentRecheck,
-      (input: typeof projectComponentInputSchema._output) =>
-        options.projects.recheck(input.componentId, input.expectedRevision),
     ],
     [
       ipcChannels.studioProjectComponentContractTest,

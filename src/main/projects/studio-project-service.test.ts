@@ -162,4 +162,53 @@ describe('StudioProjectService GUI/CLI consistency', () => {
     index.close()
     componentRepository.close()
   })
+
+  it('relinks a missing local source without changing component identity', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-relink-'))
+    directories.push(directory)
+    const projectRoot = path.join(directory, 'project')
+    const firstDatabase = path.join(directory, 'first.sqlite3')
+    const firstRepository = new ComponentRepository(firstDatabase)
+    const firstIndex = new ProjectIndexRepository(firstDatabase)
+    const first = new StudioProjectService({
+      index: firstIndex,
+      components: new ComponentService(firstRepository),
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    let state = await first.init(projectRoot)
+    const harnessSource = path.resolve('src/test/fixtures/m7/harness-x')
+    state = await first.importComponent(harnessSource, state.project!.revision)
+    const component = state.project!.components[0]
+    first.close()
+    firstIndex.close()
+    firstRepository.close()
+
+    const reopenedDatabase = path.join(directory, 'reopened.sqlite3')
+    const reopenedRepository = new ComponentRepository(reopenedDatabase)
+    const reopenedIndex = new ProjectIndexRepository(reopenedDatabase)
+    const reopened = new StudioProjectService({
+      index: reopenedIndex,
+      components: new ComponentService(reopenedRepository),
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    state = await reopened.open(projectRoot)
+    expect(await reopened.componentSourcePath(component.id)).toBeNull()
+
+    const relinked = await reopened.recheck(component.id, state.project!.revision, harnessSource)
+    expect(relinked.project!.components[0].id).toBe(component.id)
+    expect(await reopened.componentSourcePath(component.id)).toBe(harnessSource)
+
+    await expect(
+      reopened.recheck(
+        component.id,
+        relinked.project!.revision,
+        path.resolve('src/test/fixtures/m7/research-y'),
+      ),
+    ).rejects.toMatchObject({ code: 'COMPONENT_INVALID' })
+    expect((await reopened.current()).project!.revision).toBe(relinked.project!.revision)
+
+    reopened.close()
+    reopenedIndex.close()
+    reopenedRepository.close()
+  })
 })

@@ -33,6 +33,7 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
   const [feedback, setFeedback] = useState<string>()
   const [pending, setPending] = useState<string>()
   const requestId = useRef(0)
+  const actionNotice = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async (preserveError = false) => {
     const request = ++requestId.current
@@ -51,18 +52,28 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
     return window.studio.studioProject!.onExternalChanged(() => void load(true))
   }, [load])
 
+  useEffect(() => {
+    if (!error && !feedback) return
+    const frame = window.requestAnimationFrame(() => actionNotice.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [error, feedback])
+
   async function run(
     key: string,
     action: () => Promise<StudioProjectState>,
     success: string,
+    unchanged?: string,
   ): Promise<void> {
     setPending(key)
     setError(undefined)
     setFeedback(undefined)
     try {
-      setState(await action())
-      setFeedback(success)
-      await onChanged()
+      const previousRevision = state?.project?.revision
+      const next = await action()
+      setState(next)
+      const didNotWrite = unchanged !== undefined && next.project?.revision === previousRevision
+      setFeedback(didNotWrite ? unchanged : success)
+      if (!didNotWrite) await onChanged()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '无法更新 Agent Stack。')
     } finally {
@@ -123,6 +134,7 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
         return window.studio.studioProject!.current()
       },
       `${action.label}已完成。`,
+      action.action === 'recheck-static' ? '已取消重新关联，项目与兼容证据均未改动。' : undefined,
     )
   }
   const openIssueResolution = (componentId: string | null): void => {
@@ -137,7 +149,12 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
   return (
     <div className="agent-composition">
       {error ? (
-        <div className="detail-feedback detail-feedback--error" role="alert">
+        <div
+          className="detail-feedback detail-feedback--error"
+          ref={actionNotice}
+          role="alert"
+          tabIndex={-1}
+        >
           {error}
           <button className="button button--secondary" onClick={() => void load()} type="button">
             <ArrowClockwise size={16} />
@@ -146,7 +163,7 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
         </div>
       ) : null}
       {feedback ? (
-        <div className="detail-feedback" role="status">
+        <div className="detail-feedback" ref={actionNotice} role="status" tabIndex={-1}>
           <CheckCircle size={18} weight="fill" />
           {feedback}
         </div>
@@ -184,14 +201,16 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
                 <strong>{compatibilityAssessmentLabels[assessment.status]}</strong>
                 <span>{assessment.explanation}</span>
                 <div className="assessment-inline-actions">
-                  {assessment.suggestedActions.map((action) =>
-                    action.presentation === 'external-step' ? (
+                  {assessment.suggestedActions.map((action) => {
+                    const actionKey = `${assessment.componentId}:${action.action}`
+                    return action.presentation === 'external-step' ? (
                       <details key={action.id}>
                         <summary>{action.label}</summary>
                         <p>{action.externalStep}</p>
                       </details>
                     ) : (
                       <button
+                        aria-busy={pending === actionKey}
                         className="button button--quiet"
                         disabled={Boolean(pending) || !action.enabled}
                         key={action.id}
@@ -200,10 +219,10 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
                         }
                         type="button"
                       >
-                        {action.label}
+                        {pending === actionKey ? `${action.label}中…` : action.label}
                       </button>
-                    ),
-                  )}
+                    )
+                  })}
                 </div>
               </li>
             ))}

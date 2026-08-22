@@ -207,10 +207,24 @@ export class StudioProjectService {
     return this.current()
   }
 
-  async recheck(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
+  async componentSourcePath(componentId: string): Promise<string | null> {
     const state = await this.current()
     if (!state.project) throw new StudioCoreError('PROJECT_NOT_FOUND', '请先打开 Studio 项目。')
-    const sourcePath = this.#index.componentPath(state.project.id, componentId)
+    if (!state.project.components.some(({ id }) => id === componentId)) {
+      throw new StudioCoreError('COMPONENT_NOT_FOUND', '当前项目中不存在该组件。')
+    }
+    return this.#index.componentPath(state.project.id, componentId)
+  }
+
+  async recheck(
+    componentId: string,
+    expectedRevision: number,
+    selectedSourcePath?: string,
+  ): Promise<StudioProjectState> {
+    const state = await this.current()
+    if (!state.project) throw new StudioCoreError('PROJECT_NOT_FOUND', '请先打开 Studio 项目。')
+    const sourcePath =
+      selectedSourcePath ?? this.#index.componentPath(state.project.id, componentId)
     if (!sourcePath) {
       throw new StudioCoreError('COMPONENT_NOT_FOUND', '当前 Mac 没有该组件的本地来源路径。', {
         suggestedActions: [{ description: '使用“导入本地组件”重新选择来源目录。' }],
@@ -220,6 +234,7 @@ export class StudioProjectService {
       expectedRevision,
       sourcePath,
     })
+    this.#index.setComponentPath(state.project.id, componentId, sourcePath)
     return this.current()
   }
 
