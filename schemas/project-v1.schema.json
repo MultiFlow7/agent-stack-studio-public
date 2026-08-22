@@ -112,6 +112,36 @@
         },
         "configSchema": { "type": ["string", "null"] },
         "runtimeAdapter": { "type": ["string", "null"] },
+        "permissions": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scope", "required", "reason"],
+            "properties": {
+              "scope": {
+                "enum": ["network", "filesystem-read", "filesystem-write", "subprocess", "keychain"]
+              },
+              "required": { "type": "boolean" },
+              "reason": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        },
+        "secretReferences": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "purpose", "required"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,79}$" },
+              "purpose": { "type": "string", "minLength": 1, "maxLength": 300 },
+              "required": { "type": "boolean" }
+            }
+          }
+        },
         "compatibility": {
           "type": "object",
           "additionalProperties": false,
@@ -121,10 +151,52 @@
               "enum": ["native", "configuration", "adapter", "fork", "blocked", "unknown"]
             },
             "validation": { "enum": ["declared", "contract-tested", "runtime-verified", "failed"] },
-            "detail": { "type": "string", "minLength": 1, "maxLength": 500 }
+            "detail": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "strategyRationale": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "strategySelectedAt": { "type": "string", "format": "date-time" }
           }
         },
-        "evidence": { "type": "array", "items": { "type": "object" } }
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "detail"],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "manifest",
+                  "static-check",
+                  "contract-test",
+                  "runtime-check",
+                  "user-confirmation"
+                ]
+              },
+              "detail": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "status": { "enum": ["passed", "failed", "human-decision"] },
+              "method": {
+                "enum": [
+                  "safe-static-inspection-v2",
+                  "descriptor-contract-test-v1",
+                  "trusted-runtime-validation-v1",
+                  "legacy-user-confirmation"
+                ]
+              },
+              "recordedAt": { "type": "string", "format": "date-time" },
+              "supersededAt": { "type": "string", "format": "date-time" },
+              "artifact": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "contentHash"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              },
+              "receiptId": { "type": "string", "format": "uuid" }
+            }
+          }
+        }
       }
     },
     "sourceSnapshot": {
@@ -185,7 +257,34 @@
         "source": { "$ref": "#/$defs/sourceSnapshot" },
         "archivedAt": { "type": ["string", "null"], "format": "date-time" },
         "importedAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "auditTrail": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "action", "actor", "summary", "recordedAt"],
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "action": {
+                "enum": [
+                  "imported",
+                  "static-inspected",
+                  "descriptor-updated",
+                  "strategy-selected",
+                  "contract-tested",
+                  "runtime-validated",
+                  "archived",
+                  "restored"
+                ]
+              },
+              "actor": { "enum": ["system", "user"] },
+              "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+              "recordedAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
       }
     },
     "stack": {

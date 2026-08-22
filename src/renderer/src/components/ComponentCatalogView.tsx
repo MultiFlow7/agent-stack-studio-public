@@ -19,6 +19,8 @@ import {
   compatibilityLabels,
   validationLabels,
 } from '../copy'
+import { DescriptorEditor } from './DescriptorEditor'
+import type { CompatibilityAction } from '../../../shared/compatibility-assessment'
 
 type CatalogStatus = 'loading' | 'ready' | 'error'
 
@@ -40,6 +42,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
   const [query, setQuery] = useState('')
   const [compatibility, setCompatibility] = useState('all')
   const [source, setSource] = useState('all')
+  const [lifecycle, setLifecycle] = useState<'active' | 'archived' | 'all'>('active')
   const [selectedId, setSelectedId] = useState<string>()
   const [detail, setDetail] = useState<ComponentCatalogItem>()
   const [detailStatus, setDetailStatus] = useState<CatalogStatus>('ready')
@@ -107,8 +110,9 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
       action: (expectedRevision: number) => Promise<unknown>,
       success: string,
       deleted = false,
-    ) => {
-      setPending(componentId)
+      operation?: string,
+    ): Promise<boolean> => {
+      setPending(operation ? `${componentId}:${operation}` : componentId)
       setDetailError(undefined)
       setFeedback(undefined)
       try {
@@ -124,8 +128,10 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
         } else {
           setDetail(await window.studio.components.get(componentId))
         }
+        return true
       } catch (cause) {
         setDetailError(cause instanceof Error ? cause.message : '无法更新组件。')
+        return false
       } finally {
         setPending(undefined)
       }
@@ -153,6 +159,14 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
   }, [])
 
   useEffect(() => {
+    if (!window.studio.studioProject?.onExternalChanged) return undefined
+    return window.studio.studioProject.onExternalChanged(() => {
+      void load()
+      if (selectedId) void openDetail(selectedId)
+    })
+  }, [load, openDetail, selectedId])
+
+  useEffect(() => {
     if (!initialComponentId) return
     const timer = window.setTimeout(() => void openDetail(initialComponentId), 0)
     return () => window.clearTimeout(timer)
@@ -171,9 +185,12 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
       const matchesCompatibility =
         compatibility === 'all' || descriptor.compatibility.level === compatibility
       const matchesSource = source === 'all' || descriptor.source.kind === source
-      return matchesQuery && matchesCompatibility && matchesSource
+      const matchesLifecycle =
+        lifecycle === 'all' ||
+        (lifecycle === 'archived' ? Boolean(component.archivedAt) : !component.archivedAt)
+      return matchesQuery && matchesCompatibility && matchesSource && matchesLifecycle
     })
-  }, [compatibility, items, query, source])
+  }, [compatibility, items, lifecycle, query, source])
 
   return (
     <div className="catalog-page">
@@ -255,6 +272,17 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
               </span>
             </label>
             <label>
+              <span>范围</span>
+              <select
+                onChange={(event) => setLifecycle(event.target.value as typeof lifecycle)}
+                value={lifecycle}
+              >
+                <option value="active">现有组件</option>
+                <option value="archived">已归档</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
               <span>兼容状态</span>
               <select
                 onChange={(event) => setCompatibility(event.target.value)}
@@ -266,7 +294,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
                 <option value="adapter">需要 Adapter</option>
                 <option value="fork">需要 Fork</option>
                 <option value="blocked">已阻断</option>
-                <option value="unknown">待确认</option>
+                <option value="unknown">机器证据不足</option>
               </select>
             </label>
             <label>
@@ -290,6 +318,7 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
                   setQuery('')
                   setCompatibility('all')
                   setSource('all')
+                  setLifecycle('active')
                 }}
                 type="button"
               >
@@ -357,7 +386,9 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
                               {needsAttention ? (
                                 <WarningCircle aria-hidden="true" size={16} />
                               ) : null}
-                              {compatibilityLabels[compatibilityState.level]}
+                              {component.archivedAt
+                                ? '已归档'
+                                : compatibilityLabels[compatibilityState.level]}
                             </span>
                             <small>{validationLabels[compatibilityState.validation]}</small>
                           </td>
@@ -429,10 +460,16 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
               </button>
             </div>
           ) : null}
+          {detailStatus === 'ready' && detailError ? (
+            <div className="detail-feedback detail-feedback--error" role="alert">
+              {detailError}
+            </div>
+          ) : null}
           {detailStatus === 'ready' && detail ? (
             <ComponentDetail
               item={detail}
-              pending={pending === detail.component.id}
+              pending={Boolean(pending?.startsWith(detail.component.id))}
+              runtimePending={pending === `${detail.component.id}:runtime`}
               onArchive={() =>
                 mutateComponent(
                   detail.component.id,
@@ -456,6 +493,65 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
                   true,
                 )
               }
+              onRestore={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.restoreComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '组件已恢复，现在可在 Agent Stack 中选择。',
+                )
+              }
+              onRecheck={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.recheckComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '静态检查已完成，未执行组件代码。',
+                )
+              }
+              onContractTest={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.runComponentContractTest({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '契约测试已通过，Receipt 与 Artifact 哈希已记录。',
+                  false,
+                  'contract',
+                )
+              }
+              onRuntimeValidate={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.runComponentRuntimeValidation({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                      timeoutMs: 5_000,
+                    }),
+                  '受信最小运行验证已通过。',
+                  false,
+                  'runtime',
+                )
+              }
+              onCancelRuntime={async () => {
+                const result = await window.studio.studioProject!.cancelComponentRuntimeValidation({
+                  componentId: detail.component.id,
+                })
+                setFeedback(
+                  result.cancelled
+                    ? '正在取消运行验证，本次不会写入证据。'
+                    : '当前没有可取消的运行验证。',
+                )
+              }}
               onUpdate={(descriptor) =>
                 mutateComponent(
                   detail.component.id,
@@ -479,25 +575,46 @@ export function ComponentCatalogView({ initialComponentId }: ComponentCatalogVie
 function ComponentDetail({
   item,
   pending,
+  runtimePending,
   onArchive,
+  onRestore,
   onDelete,
   onUpdate,
+  onRecheck,
+  onContractTest,
+  onRuntimeValidate,
+  onCancelRuntime,
 }: {
   item: ComponentCatalogItem
   pending: boolean
-  onArchive: () => Promise<void>
-  onDelete: () => Promise<void>
-  onUpdate: (descriptor: ComponentDescriptor) => Promise<void>
+  runtimePending: boolean
+  onArchive: () => Promise<boolean>
+  onRestore: () => Promise<boolean>
+  onDelete: () => Promise<boolean>
+  onUpdate: (descriptor: ComponentDescriptor) => Promise<boolean>
+  onRecheck: () => Promise<boolean>
+  onContractTest: () => Promise<boolean>
+  onRuntimeValidate: () => Promise<boolean>
+  onCancelRuntime: () => Promise<void>
 }) {
   const descriptor = item.component.descriptor
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [name, setName] = useState(descriptor.name)
-  const [version, setVersion] = useState(descriptor.version)
-  const [license, setLicense] = useState(descriptor.source.license)
-  const [detail, setCompatibilityDetail] = useState(descriptor.compatibility.detail)
-  const [configSchema, setConfigSchema] = useState(descriptor.configSchema ?? '')
-  const [runtimeAdapter, setRuntimeAdapter] = useState(descriptor.runtimeAdapter ?? '')
+  const executeAssessmentAction = (action: CompatibilityAction): void => {
+    if (
+      action.action === 'edit-contract' ||
+      action.action === 'declare-configuration' ||
+      action.action === 'select-strategy'
+    ) {
+      setEditing(true)
+    } else if (action.action === 'recheck-static') {
+      void onRecheck()
+    } else if (action.action === 'run-contract-test') {
+      void onContractTest()
+    } else if (action.action === 'run-trusted-validation') {
+      void onRuntimeValidate()
+    }
+  }
   return (
     <div className="component-detail">
       <header>
@@ -515,24 +632,37 @@ function ComponentDetail({
             <PencilSimple aria-hidden="true" size={17} />
             {editing ? '取消更新' : '更新 Descriptor'}
           </button>
-          <button
-            className="button button--secondary"
-            disabled={pending || Boolean(item.component.archivedAt)}
-            onClick={() => void onArchive()}
-            type="button"
-          >
-            <Archive aria-hidden="true" size={17} />
-            {item.component.archivedAt ? '已归档' : '归档组件'}
-          </button>
+          {item.component.archivedAt ? (
+            <button
+              className="button button--secondary"
+              disabled={pending}
+              onClick={() => void onRestore()}
+              type="button"
+            >
+              <ArrowClockwise aria-hidden="true" size={17} />
+              恢复组件
+            </button>
+          ) : (
+            <button
+              className="button button--secondary"
+              disabled={pending}
+              onClick={() => void onArchive()}
+              type="button"
+            >
+              <Archive aria-hidden="true" size={17} />
+              归档组件
+            </button>
+          )}
           {!confirmDelete ? (
             <button
               className="button button--danger"
-              disabled={pending}
+              disabled={pending || !item.component.archivedAt}
               onClick={() => setConfirmDelete(true)}
               type="button"
+              title={item.component.archivedAt ? undefined : '请先归档并复核引用'}
             >
               <Trash aria-hidden="true" size={17} />
-              移除组件
+              永久删除
             </button>
           ) : (
             <span className="inline-confirm" role="group" aria-label={`删除 ${descriptor.name}`}>
@@ -558,75 +688,12 @@ function ComponentDetail({
       </header>
 
       {editing ? (
-        <form
-          className="descriptor-form"
-          aria-label={`更新 ${descriptor.name} Descriptor`}
-          onSubmit={(event) => {
-            event.preventDefault()
-            void onUpdate({
-              ...descriptor,
-              name,
-              version,
-              source: { ...descriptor.source, license },
-              compatibility: { ...descriptor.compatibility, detail },
-              configSchema: configSchema.trim() || null,
-              runtimeAdapter: runtimeAdapter.trim() || null,
-            }).then(() => setEditing(false))
-          }}
-        >
-          <label>
-            <span>名称</span>
-            <input
-              maxLength={100}
-              onChange={(event) => setName(event.target.value)}
-              required
-              value={name}
-            />
-          </label>
-          <label>
-            <span>版本</span>
-            <input
-              onChange={(event) => setVersion(event.target.value)}
-              pattern="\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?"
-              required
-              value={version}
-            />
-          </label>
-          <label>
-            <span>许可证</span>
-            <input
-              maxLength={120}
-              onChange={(event) => setLicense(event.target.value)}
-              required
-              value={license}
-            />
-          </label>
-          <label>
-            <span>兼容性说明</span>
-            <textarea
-              maxLength={500}
-              onChange={(event) => setCompatibilityDetail(event.target.value)}
-              required
-              rows={3}
-              value={detail}
-            />
-          </label>
-          <label>
-            <span>配置 Schema 引用（可选）</span>
-            <input onChange={(event) => setConfigSchema(event.target.value)} value={configSchema} />
-          </label>
-          <label>
-            <span>Runtime Adapter 引用（可选）</span>
-            <input
-              onChange={(event) => setRuntimeAdapter(event.target.value)}
-              value={runtimeAdapter}
-            />
-          </label>
-          <p>保存只更新结构化字段，不会自动改为“用户确认兼容”。</p>
-          <button className="button button--primary" disabled={pending} type="submit">
-            保存 Descriptor
-          </button>
-        </form>
+        <DescriptorEditor
+          descriptor={descriptor}
+          onCancel={() => setEditing(false)}
+          onSave={onUpdate}
+          pending={pending}
+        />
       ) : null}
 
       <div className="component-detail__grid">
@@ -658,8 +725,22 @@ function ComponentDetail({
               <dd>{descriptor.configSchema ?? '未声明'}</dd>
             </div>
             <div>
-              <dt>敏感字段</dt>
-              <dd>Descriptor 未携带密钥原文；敏感值仅允许使用 Keychain 引用。</dd>
+              <dt>权限</dt>
+              <dd>
+                {descriptor.permissions?.length
+                  ? descriptor.permissions
+                      .map(({ scope, required }) => `${scope}${required ? '（必需）' : ''}`)
+                      .join('、')
+                  : '未声明额外权限'}
+              </dd>
+            </div>
+            <div>
+              <dt>Keychain 引用</dt>
+              <dd>
+                {descriptor.secretReferences?.length
+                  ? descriptor.secretReferences.map(({ name }) => name).join('、')
+                  : '未声明；Descriptor 不允许密钥原文'}
+              </dd>
             </div>
           </dl>
         </section>
@@ -704,6 +785,7 @@ function ComponentDetail({
                   : '静态 Descriptor 评估'}
               </span>
             </p>
+            <p>{item.assessment.explanation}</p>
             <ul>
               {item.assessment.evidence.map((evidence, index) => (
                 <li key={`${evidence.kind}-${index}`}>
@@ -730,13 +812,42 @@ function ComponentDetail({
                 </ul>
               </div>
             ) : null}
-            <div>
+            <div className="compatibility-actions">
               <strong>建议下一步</strong>
               <ol>
                 {item.assessment.suggestedActions.map((action) => (
-                  <li key={action}>{action}</li>
+                  <li key={action.id}>
+                    <div>
+                      <strong>{action.label}</strong>
+                      <p>{action.description}</p>
+                    </div>
+                    {action.presentation === 'external-step' ? (
+                      <details>
+                        <summary>{action.label}</summary>
+                        <p>{action.externalStep}</p>
+                      </details>
+                    ) : (
+                      <button
+                        className="button button--secondary"
+                        disabled={pending || !action.enabled}
+                        onClick={() => executeAssessmentAction(action)}
+                        type="button"
+                      >
+                        {action.label}
+                      </button>
+                    )}
+                  </li>
                 ))}
               </ol>
+              {runtimePending ? (
+                <button
+                  className="button button--secondary"
+                  onClick={() => void onCancelRuntime()}
+                  type="button"
+                >
+                  取消运行验证
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -786,12 +897,43 @@ function ComponentDetail({
             {descriptor.evidence.map((evidence, index) => (
               <li key={`${evidence.kind}-${index}`}>
                 <span>{evidence.kind}</span>
-                <p>{evidence.detail}</p>
+                <p>
+                  {evidence.detail}
+                  {evidence.recordedAt
+                    ? ` ${new Date(evidence.recordedAt).toLocaleString('zh-CN')}`
+                    : ''}
+                  {evidence.supersededAt
+                    ? ` · 已于 ${new Date(evidence.supersededAt).toLocaleString('zh-CN')} 因契约变更失效`
+                    : ''}
+                  {evidence.receiptId ? ` · Receipt ${evidence.receiptId}` : ''}
+                  {evidence.artifact
+                    ? ` · Artifact ${evidence.artifact.name} (${evidence.artifact.contentHash.slice(0, 12)}…)`
+                    : ''}
+                </p>
               </li>
             ))}
           </ol>
         ) : (
           <p>尚无证据。声明本身不授予执行权限。</p>
+        )}
+      </section>
+
+      <section>
+        <h3>处置审计记录</h3>
+        {item.auditTrail?.length ? (
+          <ol className="component-evidence-list">
+            {[...item.auditTrail].reverse().map((entry) => (
+              <li key={entry.id}>
+                <span>{entry.action}</span>
+                <p>
+                  {entry.summary} · {entry.actor === 'system' ? '系统' : '用户'} ·{' '}
+                  {new Date(entry.recordedAt).toLocaleString('zh-CN')}
+                </p>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p>旧组件尚无处置审计记录；下次结构编辑、检查、归档或恢复后开始记录。</p>
         )}
       </section>
 

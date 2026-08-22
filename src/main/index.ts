@@ -31,6 +31,7 @@ import { WorkspaceService } from './workspace/workspace-service'
 import { DataMaintenanceService } from './maintenance/data-maintenance-service'
 import { ProjectIndexRepository } from './persistence/project-index-repository'
 import { StudioProjectService } from './projects/studio-project-service'
+import { ChildProcessCompatibilityRuntime } from '../core/trusted-compatibility-runtime'
 import { migrateLegacyPortableFacts } from './projects/legacy-portable-migration'
 import { registerStudioProjectIpc } from './ipc/register-studio-project-ipc'
 import { GithubDiscoveryProvider } from '../adapters/github/github-discovery-provider'
@@ -340,6 +341,9 @@ async function bootstrap(): Promise<void> {
     components,
     agents: repository,
     cliPath,
+    compatibilityRuntime: new ChildProcessCompatibilityRuntime(
+      path.join(currentDirectory, '../runtime/compatibility-validation.mjs'),
+    ),
   })
   components.connectProject(studioProjectService)
   agents.connectProject(studioProjectService)

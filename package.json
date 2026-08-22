@@ -19,7 +19,7 @@
     "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/main/index.mjs --external:electron --external:cordis --external:better-sqlite3",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --format=cjs --target=node24 --outfile=dist/preload/index.cjs --external:electron",
     "build:renderer": "vite build",
-    "build:runtime": "esbuild src/runtime/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/runtime/index.mjs --external:cordis",
+    "build:runtime": "esbuild src/runtime/index.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/runtime/index.mjs --external:cordis && esbuild src/runtime/compatibility-validation.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/runtime/compatibility-validation.mjs --external:cordis",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run verify:public-snapshot && npm run verify:local-acceptance && npm run verify:evidence-ledger && npm run build",
     "clean": "node scripts/clean.mjs",
     "dev": "npm run build && electron .",

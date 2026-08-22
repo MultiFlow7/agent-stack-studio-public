@@ -61,7 +61,38 @@ describe('compatibility assessment', () => {
     })
     expect(result.status).toBe('unchecked')
     expect(result.blockers.join('')).toContain('运行入口契约')
-    expect(result.suggestedActions.join('')).toContain('Adapter 契约')
+    expect(result.suggestedActions.map(({ action }) => action)).toEqual([
+      'recheck-static',
+      'edit-contract',
+      'select-strategy',
+    ])
+    expect(result.explanation).toContain('不是等待用户点击确认')
     expect(result.evidence.some(({ kind }) => kind === 'entrypoint')).toBe(true)
+  })
+
+  it('maps legacy user-confirmed evidence to a preserved human decision without technical uplift', () => {
+    const result = assess({
+      ...base,
+      provides: base.provides.map((provider, index) => ({
+        ...provider,
+        confidence: index === 0 ? ('user-confirmed' as const) : provider.confidence,
+      })),
+      evidence: [
+        {
+          kind: 'user-confirmation',
+          detail: '旧项目用户点击了确认。',
+          status: 'human-decision',
+          method: 'legacy-user-confirmation',
+        },
+      ],
+      compatibility: { level: 'unknown', validation: 'declared', detail: '旧记录。' },
+    })
+    expect(result.status).toBe('unchecked')
+    expect(result.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'human-decision', status: 'human-decision' }),
+      ]),
+    )
+    expect(result.method).toBe('static-descriptor-v2')
   })
 })

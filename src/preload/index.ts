@@ -52,6 +52,9 @@ import {
 } from '../shared/maintenance'
 import {
   projectComponentInputSchema,
+  projectComponentValidationInputSchema,
+  projectComponentCancelInputSchema,
+  projectComponentCancelResultSchema,
   projectDescriptorInputSchema,
   projectMutationInputSchema,
   projectOwnerInputSchema,
@@ -427,6 +430,34 @@ const api: StudioApi = {
       const parsed = projectComponentInputSchema.parse(input)
       const response = await invokeMutation(ipcChannels.studioProjectComponentArchive, parsed)
       return studioProjectStateSchema.parse(response)
+    },
+    async restoreComponent(input) {
+      const parsed = projectComponentInputSchema.parse(input)
+      const response = await invokeMutation(ipcChannels.studioProjectComponentRestore, parsed)
+      return studioProjectStateSchema.parse(response)
+    },
+    async recheckComponent(input) {
+      const parsed = projectComponentInputSchema.parse(input)
+      const response = await invokeMutation(ipcChannels.studioProjectComponentRecheck, parsed)
+      return studioProjectStateSchema.parse(response)
+    },
+    async runComponentContractTest(input) {
+      const parsed = projectComponentInputSchema.parse(input)
+      const response = await invokeMutation(ipcChannels.studioProjectComponentContractTest, parsed)
+      return studioProjectStateSchema.parse(response)
+    },
+    async runComponentRuntimeValidation(input) {
+      const parsed = projectComponentValidationInputSchema.parse(input)
+      const response = await invokeMutation(
+        ipcChannels.studioProjectComponentRuntimeValidate,
+        parsed,
+      )
+      return studioProjectStateSchema.parse(response)
+    },
+    async cancelComponentRuntimeValidation(input) {
+      const parsed = projectComponentCancelInputSchema.parse(input)
+      const response = await invokeMutation(ipcChannels.studioProjectComponentRuntimeCancel, parsed)
+      return projectComponentCancelResultSchema.parse(response)
     },
     async deleteComponent(input) {
       const parsed = projectComponentInputSchema.parse(input)

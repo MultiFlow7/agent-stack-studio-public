@@ -30,6 +30,11 @@ export const projectMetadataInputSchema = projectMutationInputSchema
 export const projectComponentInputSchema = projectMutationInputSchema.extend({
   componentId: z.uuid(),
 })
+export const projectComponentValidationInputSchema = projectComponentInputSchema
+  .extend({ timeoutMs: z.number().int().min(500).max(60_000).default(5_000) })
+  .strict()
+export const projectComponentCancelInputSchema = z.object({ componentId: z.uuid() }).strict()
+export const projectComponentCancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
 export const projectOwnerInputSchema = projectComponentInputSchema.extend({
   capability: capabilityIdSchema,
 })
@@ -113,6 +118,8 @@ export const projectWorkflowFreezeInputSchema = z
 export type StudioProjectState = z.infer<typeof studioProjectStateSchema>
 export type ProjectMetadataInput = z.infer<typeof projectMetadataInputSchema>
 export type ProjectComponentInput = z.infer<typeof projectComponentInputSchema>
+export type ProjectComponentValidationInput = z.infer<typeof projectComponentValidationInputSchema>
+export type ProjectComponentCancelInput = z.infer<typeof projectComponentCancelInputSchema>
 export type ProjectOwnerInput = z.infer<typeof projectOwnerInputSchema>
 export type ProjectDescriptorInput = z.infer<typeof projectDescriptorInputSchema>
 export type ProjectWorkflowCreateInput = z.infer<typeof projectWorkflowCreateInputSchema>

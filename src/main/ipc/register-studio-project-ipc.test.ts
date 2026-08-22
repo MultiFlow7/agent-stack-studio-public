@@ -182,4 +182,59 @@ describe('Studio Project export IPC', () => {
       expect(handler).not.toHaveBeenCalled()
     }
   })
+
+  it('strictly validates compatibility lifecycle inputs and exposes cancellation only by component ID', async () => {
+    const componentId = randomUUID()
+    const restore = vi.fn().mockRejectedValue(new Error('restore reached'))
+    const recheck = vi.fn().mockRejectedValue(new Error('recheck reached'))
+    const contractTest = vi.fn().mockRejectedValue(new Error('contract reached'))
+    const runtimeValidate = vi.fn().mockRejectedValue(new Error('runtime reached'))
+    const cancelRuntimeValidation = vi.fn().mockReturnValue(true)
+    registerStudioProjectIpc({
+      projects: {
+        restore,
+        recheck,
+        contractTest,
+        runtimeValidate,
+        cancelRuntimeValidation,
+        onChanged: vi.fn().mockReturnValue(() => undefined),
+      } as unknown as StudioProjectService,
+      getWindow: () => undefined,
+    })
+
+    for (const channel of [
+      ipcChannels.studioProjectComponentRestore,
+      ipcChannels.studioProjectComponentRecheck,
+      ipcChannels.studioProjectComponentContractTest,
+      ipcChannels.studioProjectComponentRuntimeValidate,
+      ipcChannels.studioProjectComponentRuntimeCancel,
+    ]) {
+      await expect(
+        electron.handlers.get(channel)?.(trustedEvent, {
+          componentId,
+          expectedRevision: 4,
+          path: '/tmp/untrusted',
+        }),
+      ).rejects.toThrow('提交的 Agent 数据无效')
+    }
+    expect(restore).not.toHaveBeenCalled()
+    expect(recheck).not.toHaveBeenCalled()
+    expect(contractTest).not.toHaveBeenCalled()
+    expect(runtimeValidate).not.toHaveBeenCalled()
+
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRuntimeValidate)?.(trustedEvent, {
+        componentId,
+        expectedRevision: 4,
+        timeoutMs: 1_500,
+      }),
+    ).rejects.toThrow('Agent Stack Studio 无法完成此操作')
+    expect(runtimeValidate).toHaveBeenCalledWith(componentId, 4, 1_500)
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRuntimeCancel)?.(trustedEvent, {
+        componentId,
+      }),
+    ).resolves.toEqual({ cancelled: true })
+    expect(cancelRuntimeValidation).toHaveBeenCalledWith(componentId)
+  })
 })

@@ -2237,7 +2237,7 @@ kbd {
 
 .catalog-filters {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 180px 180px;
+  grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(140px, 170px));
   gap: 12px;
   margin-bottom: 14px;
   padding: 14px 16px;
@@ -2563,6 +2563,99 @@ kbd {
 .descriptor-form p,
 .descriptor-form button {
   align-self: end;
+}
+
+.descriptor-form--complete {
+  grid-template-columns: 1fr;
+  gap: 22px;
+}
+
+.descriptor-form--complete > header,
+.descriptor-form--complete fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.descriptor-form--complete legend {
+  margin-bottom: 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.descriptor-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+}
+
+.descriptor-array-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.4fr) 150px 130px 150px 36px;
+  align-items: end;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.descriptor-array-row--compact {
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) 90px 36px;
+}
+
+.descriptor-array-row .icon-button {
+  margin-bottom: 1px;
+}
+
+.descriptor-form__actions,
+.assessment-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compatibility-actions > ol,
+.compatibility-actions > ol > li {
+  display: grid;
+  gap: 10px;
+}
+
+.compatibility-actions > ol {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compatibility-actions > ol > li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.compatibility-actions p,
+.assessment-inline-actions p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.assessment-inline-actions {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1050px) {
+  .catalog-filters,
+  .descriptor-form__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .descriptor-array-row,
+  .descriptor-array-row--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .component-detail h3 {

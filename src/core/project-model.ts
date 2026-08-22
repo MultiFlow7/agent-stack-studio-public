@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { compatibilityRemediationTasksSchema } from '../shared/remediation'
 import { compatibilityAssessmentSchema } from '../shared/compatibility-assessment'
 import { executionModeSchema } from '../shared/agent'
-import { capabilityIdSchema, componentDescriptorSchema } from '../shared/component'
+import {
+  capabilityIdSchema,
+  componentAuditEntrySchema,
+  componentDescriptorSchema,
+} from '../shared/component'
 
 export const PROJECT_FILE_NAME = '.agent-stack' as const
 export const PROJECT_FORMAT_VERSION = 2 as const
@@ -51,6 +55,7 @@ export const projectComponentSchema = z
     archivedAt: z.iso.datetime().nullable(),
     importedAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
+    auditTrail: z.array(componentAuditEntrySchema).max(500).optional(),
   })
   .strict()
 

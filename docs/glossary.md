@@ -27,6 +27,8 @@
 | Runtime Adapter 白名单 | 由 Main 与 Runtime 共用的完整 Adapter 引用集合。命名空间前缀、静态 Descriptor 或用户确认均不会自动进入白名单。 |
 | declared | Manifest 明确声明，尚未由 Studio 运行验证。 |
 | detected | Studio 从安全静态证据推断，需要用户检查。 |
-| user-confirmed | 用户或 Coding Agent 明确更正并确认 Descriptor。 |
+| user-confirmed | 历史人工决策/更正记录，只表示人工接受，不作为平台、契约、Adapter 或运行兼容证据。 |
 | contract-tested | 稳定 Component Contract 已通过测试。 |
 | runtime-verified | 受信环境中的最小运行验证已通过。 |
+| 机器证据不足 | 当前缺少可重现的静态、契约或受信运行证据；不是等待用户点击确认。 |
+| superseded evidence | 因技术契约改变而不再支持当前结论的历史证据；保留时间、方法、Receipt 与 Artifact 供审计。 |

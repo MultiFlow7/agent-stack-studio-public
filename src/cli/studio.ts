@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import { capabilityIdSchema } from '../shared/component'
 import packageMetadata from '../../package.json' with { type: 'json' }
@@ -20,6 +20,10 @@ import {
   type KeychainAdapter,
 } from '../adapters/keychain/macos-keychain-adapter'
 import { redactSensitiveText, sanitizeDiagnosticValue } from '../shared/sensitive-data'
+import {
+  ChildProcessCompatibilityRuntime,
+  type TrustedCompatibilityRuntimeGateway,
+} from '../core/trusted-compatibility-runtime'
 
 export interface ParsedArguments {
   positionals: string[]
@@ -67,6 +71,7 @@ export interface CliDependencies {
   now?: () => Date
   keychain?: KeychainAdapter
   readSecretInput?: () => Promise<string>
+  compatibilityRuntime?: TrustedCompatibilityRuntimeGateway
 }
 
 export function parseArguments(args: string[]): ParsedArguments {
@@ -174,7 +179,7 @@ function usage(): string {
 用法：studio <group> <command> [arguments] [--project <path>] [--json]
 
 项目：project init|inspect|validate|audit|export
-组件：component inspect|import|update|archive|delete
+组件：component inspect|list|import|update|archive|restore|contract-test|runtime-validate|delete
 Stack：stack add|remove|owner set|validate|freeze
 版本：version create|list|inspect
 Workflow：workflow create|list|inspect|node-add|node-remove|edge-add|edge-remove|freeze
@@ -414,6 +419,28 @@ export async function executeCliCommand(
     const sourcePath = required(rest[0], 'component inspect 需要本地来源目录。')
     return { command, data: await core.inspectComponent(sourcePath), suggestedActions: [] }
   }
+  if (group === 'component' && action === 'list') {
+    const scope = flag(parsed, 'scope') ?? 'active'
+    if (!['active', 'archived', 'all'].includes(scope)) {
+      throw new StudioCoreError('USAGE_ERROR', '--scope 必须是 active、archived 或 all。')
+    }
+    const { project } = await core.inspectProject(rootPath)
+    return {
+      command,
+      data: {
+        projectId: project.id,
+        scope,
+        components: project.components.filter((component) =>
+          scope === 'all'
+            ? true
+            : scope === 'archived'
+              ? Boolean(component.archivedAt)
+              : !component.archivedAt,
+        ),
+      },
+      suggestedActions: [],
+    }
+  }
   if (group === 'workflow' && action === 'create') {
     return {
       command,
@@ -559,6 +586,52 @@ export async function executeCliCommand(
     return {
       command,
       data: await core.archiveComponent(rootPath, componentId, mutation),
+      suggestedActions: [],
+    }
+  }
+  if (group === 'component' && action === 'restore') {
+    const componentId = requiredUuid(rest[0], 'component restore 需要组件 UUID。')
+    return {
+      command,
+      data: await core.restoreComponent(rootPath, componentId, mutation),
+      suggestedActions: [
+        {
+          command: `studio stack add ${componentId} --project ${JSON.stringify(rootPath)} --json`,
+          description: '恢复后可立即加入 Stack。',
+        },
+      ],
+    }
+  }
+  if (group === 'component' && action === 'contract-test') {
+    const componentId = requiredUuid(rest[0], 'component contract-test 需要组件 UUID。')
+    return {
+      command,
+      data: await core.runComponentContractTest(rootPath, componentId, mutation),
+      suggestedActions: [
+        {
+          command: `studio component runtime-validate ${componentId} --project ${JSON.stringify(rootPath)} --json`,
+          description: '契约测试通过后，仅白名单 Adapter 可进入受信最小运行验证。',
+        },
+      ],
+    }
+  }
+  if (group === 'component' && action === 'runtime-validate') {
+    const componentId = requiredUuid(rest[0], 'component runtime-validate 需要组件 UUID。')
+    const runtime =
+      dependencies.compatibilityRuntime ??
+      new ChildProcessCompatibilityRuntime(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '../runtime/compatibility-validation.mjs',
+        ),
+      )
+    return {
+      command,
+      data: await core.runTrustedComponentValidation(rootPath, componentId, runtime, {
+        ...mutation,
+        timeoutMs: integerFlag(parsed, 'timeout-ms', 5_000, 500, 60_000),
+        signal: dependencies.signal,
+      }),
       suggestedActions: [],
     }
   }

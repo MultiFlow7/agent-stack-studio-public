@@ -62,3 +62,9 @@ The topbar is a compact factual instrument strip: the current project and revisi
 Primary navigation follows user tasks: Agent, Component Library, Discovery, Experiments, Runs and Settings. The current project is a compact global context control in the top bar, not a primary destination. Its secondary Project Settings view contains path, revision, integrity/recovery, import/export and CLI discovery only.
 
 The Agent Stack tab is one continuous composition surface: component picker, ordered membership, capability Owner choices, shared compatibility evidence, blockers and suggested actions, then structured Workflow editing. The freeze action says “冻结 Agent Version” and remains visually tied to validation. Users never edit Descriptor JSON. Advanced identifiers and evidence expand progressively; default copy states capability, impact and next action.
+
+## Compatibility disposition pattern
+
+“机器证据不足” is an explanatory state, never a pending-confirmation affordance. Component detail is a continuous evidence document: plain-language status and missing evidence first, structured next actions second, the complete Descriptor form third, then receipts, artifacts, superseded evidence and audit history. Strategy selection is visually labelled as a disposition direction; the read-only validation level remains separate. Array editors use stable keyboard focus, inline schema errors and a zero-write Cancel path. Runtime validation has one visible progress state and an adjacent Cancel action; failure keeps the document intact and offers the same retry entry.
+
+Archived Components stay in the same catalog through an Active / Archived / All filter. Restore is the primary lifecycle action for an archived row and returns it to the Agent picker immediately. Permanent deletion stays disabled until archival and expands inline only after reference protection has been evaluated.

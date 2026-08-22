@@ -44,6 +44,8 @@ import type {
 } from './maintenance'
 import type {
   ProjectComponentInput,
+  ProjectComponentValidationInput,
+  ProjectComponentCancelInput,
   ProjectDescriptorInput,
   ProjectOwnerInput,
   ProjectWorkflowCreateInput,
@@ -131,6 +133,11 @@ export const ipcChannels = {
   studioProjectImport: 'studio-project:component-import',
   studioProjectDescriptorUpdate: 'studio-project:descriptor-update',
   studioProjectComponentArchive: 'studio-project:component-archive',
+  studioProjectComponentRestore: 'studio-project:component-restore',
+  studioProjectComponentRecheck: 'studio-project:component-recheck',
+  studioProjectComponentContractTest: 'studio-project:component-contract-test',
+  studioProjectComponentRuntimeValidate: 'studio-project:component-runtime-validate',
+  studioProjectComponentRuntimeCancel: 'studio-project:component-runtime-cancel',
   studioProjectComponentDelete: 'studio-project:component-delete',
   studioProjectStackAdd: 'studio-project:stack-add',
   studioProjectStackRemove: 'studio-project:stack-remove',
@@ -230,6 +237,15 @@ export interface StudioApi {
     importComponent(expectedRevision: number): Promise<StudioProjectState>
     updateDescriptor(input: ProjectDescriptorInput): Promise<StudioProjectState>
     archiveComponent(input: ProjectComponentInput): Promise<StudioProjectState>
+    restoreComponent(input: ProjectComponentInput): Promise<StudioProjectState>
+    recheckComponent(input: ProjectComponentInput): Promise<StudioProjectState>
+    runComponentContractTest(input: ProjectComponentInput): Promise<StudioProjectState>
+    runComponentRuntimeValidation(
+      input: ProjectComponentValidationInput,
+    ): Promise<StudioProjectState>
+    cancelComponentRuntimeValidation(
+      input: ProjectComponentCancelInput,
+    ): Promise<{ cancelled: boolean }>
     deleteComponent(input: ProjectComponentInput): Promise<StudioProjectState>
     addToStack(input: ProjectComponentInput): Promise<StudioProjectState>
     removeFromStack(input: ProjectComponentInput): Promise<StudioProjectState>

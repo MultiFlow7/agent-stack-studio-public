@@ -48,3 +48,11 @@
 一个打开的 `.agent-stack` 项目解释为一个可携 Agent Stack。Component Descriptor、Stack 顺序、Owner 决策、Workflow 和不可变 Version 都由该文件唯一承载；SQLite 只以稳定 Agent ID 引用项目 ID、路径、revision 和不可变 Version ID，不复制项目内容。
 
 `project validate`、`stack validate` 和 Agent 组装器都从同一 Core 计算兼容性评估。评估是可重建的验证结果，不要求用户手工编辑 JSON；外部文件的 revision 与完整性仍在每次写入前复核。
+
+## M31 兼容与生命周期字段
+
+M31 在 v2 内增加 Descriptor `permissions`、`secretReferences`、策略理由/时间，以及 evidence 的 status/method/recordedAt/supersededAt/Artifact/Receipt。Project Component 可选 `auditTrail` 记录导入、静态检查、结构更新、策略、契约测试、运行验证、归档和恢复。这些仍只位于 `.agent-stack`；SQLite 不增加同步副本，Keychain 原文不进入文件。
+
+加法字段都有 schema 上限和严格对象校验。旧 v0/v1/v2 `unknown` 和 `user-confirmed` 记录保持原样；读取投影将其明确映射为“机器证据不足”或“人工决策记录”，绝不升级为契约/运行通过。需要格式迁移时仍保留 `.agent-stack.backup`；高于 v2 的格式继续拒绝读取改写。
+
+Component 归档仅写 `archivedAt` 和审计记录，恢复将其清空。归档 Component 仍保留在历史 Version/Workflow 中；永久删除只能在已归档且无任何当前或不可变引用时发生。

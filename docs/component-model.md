@@ -65,7 +65,7 @@ Descriptor 是声明和证据，不是可执行权限。导入时先解析 Descr
 | 需要 Adapter | 接口不同，但可通过适配层连接 |
 | 需要 Fork | 必须修改上游或维护补丁 |
 | 锁定 | 当前实现不可独立替换 |
-| 未知 | 扫描证据不足，需要用户确认或验证 |
+| 未知 | 机器证据不足；需静态复查、契约修正或技术验证，不是等待用户确认 |
 
 ## 5. 能力 Owner
 
@@ -144,3 +144,11 @@ Component 的可移植定义由 `.agent-stack` 保存。SQLite 只保留本机�
 Studio Core 对当前 Stack 的每个 Component 输出 `CompatibilityAssessment`：用户状态为未检查、静态通过、需配置、需 Adapter、运行验证通过或不兼容。结论带稳定证据、阻断原因、`suggestedActions`、验证时间和验证方法；GUI 与 CLI 必须显示同一 Core 结果。
 
 项目的 `components`、`stack`、`owners`、`workflows` 和 `versions` 都只在 `.agent-stack` 中读写。SQLite 中的历史 Component/Stack/Owner/Version 只作一次性迁移输入；迁移完成后本机 Agent 只保留对项目和不可变项目 Version 的稳定引用。
+
+## 13. M31 可执行兼容处置
+
+兼容处置按下列顺序形成证据链：安全重新静态检查→修正 provides/requires、replaceability 和 activation→声明 configSchema、最小权限与 Keychain 引用名→选择 Native/Configuration/Adapter/Fork/Incompatible 处置方向→解决 Owner 冲突→确定性契约测试→受信最小运行验证。
+
+策略是人工审计决定，不改变 validation。Descriptor 人工写入不能改写 evidence；技术契约变更会将当前契约/运行证据标记 superseded 并回到 declared。只有 Studio 确定性测试可产生 contract-test，且只有白名单内置 Adapter 在全新 Runtime 子进程真实启停后才产生 runtime-check。
+
+Pi + MRAgent 类静态扫描的默认结论不再诱导伪造 Native：Pi 应明确为 `execution-controller` Owner，为其选择可审查的白名单 Harness Adapter 并逐级测试；MRAgent 只在 Manifest/README/契约证据支持时修正为 `memory`/`state-store`，未进入受信 Runtime 前最多停留在 contract-tested。

@@ -136,7 +136,9 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
     <div className="stack-editor">
       <header className="stack-editor__header">
         <div>
-          <h2>Stack 草稿</h2>
+          <h2 id="stack-editor-heading" tabIndex={-1}>
+            Stack 草稿
+          </h2>
           <p>修订 {stack.revision}。先确认能力覆盖与 Owner，再编译 Runtime Plan。</p>
         </div>
         <button
@@ -237,6 +239,9 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                   <span className="component-compatibility">
                     {compatibilityLabels[component.descriptor.compatibility.level]}
                     <small>{validationLabels[component.descriptor.compatibility.validation]}</small>
+                    {component.descriptor.compatibility.level === 'unknown' ? (
+                      <small>不是等待点击确认；缺少替换边界、契约测试或受信运行证据。</small>
+                    ) : null}
                   </span>
                   <button
                     aria-label={`从 Stack 移除 ${component.descriptor.name}`}

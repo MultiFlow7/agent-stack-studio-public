@@ -157,6 +157,12 @@ describe('ComponentCatalogView', () => {
 
   it('updates structured Descriptor fields without upgrading evidence and confirms removal', async () => {
     installComponentApi()
+    let archived = false
+    const archivedItem: ComponentCatalogItem = {
+      ...item,
+      component: { ...item.component, archivedAt: '2026-08-22T10:00:00.000Z' },
+    }
+    window.studio.components.get = vi.fn(() => Promise.resolve(archived ? archivedItem : item))
     const current = {
       project: { revision: 4 },
     } as Awaited<ReturnType<NonNullable<StudioApi['studioProject']>['current']>>
@@ -165,7 +171,10 @@ describe('ComponentCatalogView', () => {
       .mockResolvedValue(current)
     const archiveComponent = vi
       .fn<NonNullable<StudioApi['studioProject']>['archiveComponent']>()
-      .mockResolvedValue(current)
+      .mockImplementation(() => {
+        archived = true
+        return Promise.resolve(current)
+      })
     const deleteComponent = vi
       .fn<NonNullable<StudioApi['studioProject']>['deleteComponent']>()
       .mockResolvedValue(current)
@@ -200,10 +209,10 @@ describe('ComponentCatalogView', () => {
       }),
     )
 
-    await user.click(screen.getByRole('button', { name: '移除组件' }))
+    await user.click(screen.getByRole('button', { name: '永久删除' }))
     await user.click(screen.getByRole('button', { name: '取消' }))
     expect(deleteComponent).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: '移除组件' }))
+    await user.click(screen.getByRole('button', { name: '永久删除' }))
     await user.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() =>
       expect(deleteComponent).toHaveBeenCalledWith({
@@ -212,5 +221,98 @@ describe('ComponentCatalogView', () => {
       }),
     )
     expect(screen.queryByLabelText('组件详情')).not.toBeInTheDocument()
+  })
+
+  it('edits the complete capability contract with schema validation and cancel zero-write', async () => {
+    installComponentApi()
+    const current = {
+      project: { revision: 7 },
+    } as Awaited<ReturnType<NonNullable<StudioApi['studioProject']>['current']>>
+    const updateDescriptor = vi
+      .fn<NonNullable<StudioApi['studioProject']>['updateDescriptor']>()
+      .mockResolvedValue(current)
+    window.studio.studioProject = {
+      current: vi.fn().mockResolvedValue(current),
+      updateDescriptor,
+    } as unknown as NonNullable<StudioApi['studioProject']>
+    const user = userEvent.setup()
+    render(<ComponentCatalogView />)
+
+    await user.click(await screen.findByRole('button', { name: /本地 Harness X/ }))
+    await user.click(screen.getByRole('button', { name: '更新 Descriptor' }))
+    await user.click(screen.getByRole('button', { name: '取消' }))
+    expect(updateDescriptor).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '更新 Descriptor' }))
+    await user.selectOptions(screen.getByLabelText('策略'), 'adapter')
+    await user.type(screen.getByLabelText('策略理由'), '需要稳定转换契约。')
+    await user.selectOptions(screen.getAllByLabelText('替换性')[0], 'adapter-required')
+    await user.selectOptions(screen.getAllByLabelText('激活方式')[0], 'owner-only')
+    await user.click(screen.getByRole('button', { name: '添加依赖' }))
+    const capabilityInputs = screen.getAllByLabelText('能力')
+    await user.clear(capabilityInputs.at(-1)!)
+    await user.type(capabilityInputs.at(-1)!, 'state-store')
+    await user.click(screen.getByRole('button', { name: '添加权限' }))
+    await user.click(screen.getByRole('button', { name: '添加密钥引用' }))
+    await user.type(screen.getByLabelText('理由'), '访问本地模型网关。')
+    await user.type(screen.getByLabelText('用途'), '模型网关认证。')
+    await user.click(screen.getByRole('button', { name: '保存 Descriptor' }))
+
+    await waitFor(() => expect(updateDescriptor).toHaveBeenCalledTimes(1))
+    const descriptor = updateDescriptor.mock.calls[0]?.[0].descriptor
+    expect(descriptor?.compatibility).toMatchObject({
+      level: 'adapter',
+      validation: 'runtime-verified',
+      strategyRationale: '需要稳定转换契约。',
+    })
+    expect(descriptor?.provides[0]).toMatchObject({
+      replaceability: 'adapter-required',
+      activation: 'owner-only',
+    })
+    expect(descriptor?.requires.at(-1)?.capability).toBe('state-store')
+    expect(descriptor?.permissions).toEqual([
+      { scope: 'network', required: true, reason: '访问本地模型网关。' },
+    ])
+    expect(descriptor?.secretReferences).toEqual([
+      { name: 'API_KEY', purpose: '模型网关认证。', required: true },
+    ])
+  })
+
+  it('filters archived components and restores one for immediate Stack selection', async () => {
+    const archivedItem: ComponentCatalogItem = {
+      ...item,
+      component: { ...item.component, archivedAt: '2026-08-22T10:00:00.000Z' },
+    }
+    let restored = false
+    installComponentApi({
+      catalog: vi.fn(() => Promise.resolve([restored ? item : archivedItem])),
+      get: vi.fn(() => Promise.resolve(restored ? item : archivedItem)),
+    })
+    const current = {
+      project: { revision: 8 },
+    } as Awaited<ReturnType<NonNullable<StudioApi['studioProject']>['current']>>
+    const restoreComponent = vi
+      .fn<NonNullable<StudioApi['studioProject']>['restoreComponent']>()
+      .mockImplementation(() => {
+        restored = true
+        return Promise.resolve(current)
+      })
+    window.studio.studioProject = {
+      current: vi.fn().mockResolvedValue(current),
+      restoreComponent,
+    } as unknown as NonNullable<StudioApi['studioProject']>
+    const user = userEvent.setup()
+    render(<ComponentCatalogView />)
+
+    await user.selectOptions(await screen.findByLabelText('范围'), 'archived')
+    await user.click(await screen.findByRole('button', { name: /本地 Harness X/ }))
+    await user.click(screen.getByRole('button', { name: '恢复组件' }))
+    await waitFor(() =>
+      expect(restoreComponent).toHaveBeenCalledWith({
+        componentId: item.component.id,
+        expectedRevision: 8,
+      }),
+    )
+    expect(await screen.findByText('组件已恢复，现在可在 Agent Stack 中选择。')).toBeVisible()
   })
 })

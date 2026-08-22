@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StudioCoreError } from '../core/project-errors'
-import type { StudioProject } from '../core/project-model'
+import type { ProjectComponent, StudioProject } from '../core/project-model'
 import type { SourceDiscoveryProvider } from '../core/source-discovery'
 import type { DiscoveredRepository } from '../shared/source-discovery'
 import type { KeychainAdapter } from '../adapters/keychain/macos-keychain-adapter'
@@ -216,6 +216,22 @@ describe('studio CLI contract', () => {
       path.resolve('src/test/fixtures/m7/detected/fixed-descriptor.json'),
     ])
     await run(['component', 'archive', detected.id])
+    expect(
+      (
+        (await run(['component', 'list', '--scope', 'archived'])).data as {
+          components: ProjectComponent[]
+        }
+      ).components.map(({ id }) => id),
+    ).toContain(detected.id)
+    await run(['component', 'restore', detected.id])
+    expect(
+      (
+        (await run(['component', 'list', '--scope', 'active'])).data as {
+          components: ProjectComponent[]
+        }
+      ).components.map(({ id }) => id),
+    ).toContain(detected.id)
+    await run(['component', 'archive', detected.id])
     await run(['component', 'delete', detected.id])
 
     await run(['component', 'import', path.resolve('src/test/fixtures/m22/legacy-adapter')])
@@ -243,6 +259,7 @@ describe('studio CLI contract', () => {
       ),
     ).toBe(true)
     await run(['stack', 'remove', adapter.id])
+    await run(['component', 'archive', adapter.id])
     await run(['component', 'delete', adapter.id])
 
     const audited = await run(['project', 'audit'])

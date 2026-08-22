@@ -15,6 +15,8 @@ import {
   type AgentVersion,
   type MaterializedAgentVersion,
 } from '../../shared/agent-detail'
+import type { TrustedCompatibilityRuntimeGateway } from '../../core/trusted-compatibility-runtime'
+import { StudioCoreError } from '../../core/project-errors'
 
 export class StudioProjectService {
   readonly #core: StudioCore
@@ -22,6 +24,7 @@ export class StudioProjectService {
   readonly #components: ComponentService
   readonly #agents: AgentRepository | null
   readonly #cliPath: string
+  readonly #compatibilityRuntime: TrustedCompatibilityRuntimeGateway | null
   #activeRoot: string | null = null
   #watcher: FSWatcher | null = null
   #watchedPath: string | null = null
@@ -35,6 +38,7 @@ export class StudioProjectService {
   #activeAgentId: string | null = null
   #cachedState: StudioProjectState | null = null
   #pendingAgentId: string | undefined
+  #compatibilityValidationControllers = new Map<string, AbortController>()
 
   constructor(options: {
     core?: StudioCore
@@ -42,12 +46,14 @@ export class StudioProjectService {
     components: ComponentService
     agents?: AgentRepository
     cliPath: string
+    compatibilityRuntime?: TrustedCompatibilityRuntimeGateway
   }) {
     this.#core = options.core ?? new StudioCore()
     this.#index = options.index
     this.#components = options.components
     this.#agents = options.agents ?? null
     this.#cliPath = options.cliPath
+    this.#compatibilityRuntime = options.compatibilityRuntime ?? null
     const latest = this.#index.latest()
     if (latest) this.#activeRoot = path.dirname(latest.projectPath)
   }
@@ -194,6 +200,71 @@ export class StudioProjectService {
   async archive(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
     await this.#core.archiveComponent(this.#requireRoot(), componentId, { expectedRevision })
     return this.current()
+  }
+
+  async restore(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
+    await this.#core.restoreComponent(this.#requireRoot(), componentId, { expectedRevision })
+    return this.current()
+  }
+
+  async recheck(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
+    const state = await this.current()
+    if (!state.project) throw new StudioCoreError('PROJECT_NOT_FOUND', '请先打开 Studio 项目。')
+    const sourcePath = this.#index.componentPath(state.project.id, componentId)
+    if (!sourcePath) {
+      throw new StudioCoreError('COMPONENT_NOT_FOUND', '当前 Mac 没有该组件的本地来源路径。', {
+        suggestedActions: [{ description: '使用“导入本地组件”重新选择来源目录。' }],
+      })
+    }
+    await this.#core.updateComponent(this.#requireRoot(), componentId, {
+      expectedRevision,
+      sourcePath,
+    })
+    return this.current()
+  }
+
+  async contractTest(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
+    await this.#core.runComponentContractTest(this.#requireRoot(), componentId, {
+      expectedRevision,
+    })
+    return this.current()
+  }
+
+  async runtimeValidate(
+    componentId: string,
+    expectedRevision: number,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<StudioProjectState> {
+    if (!this.#compatibilityRuntime) {
+      throw new StudioCoreError('UNSAFE_SOURCE', '受信兼容性 Runtime 未配置。')
+    }
+    if (this.#compatibilityValidationControllers.has(componentId)) {
+      throw new StudioCoreError('REVISION_CONFLICT', '该组件已在进行运行验证。')
+    }
+    const controller = new AbortController()
+    const forwardAbort = () => controller.abort()
+    signal?.addEventListener('abort', forwardAbort, { once: true })
+    this.#compatibilityValidationControllers.set(componentId, controller)
+    try {
+      await this.#core.runTrustedComponentValidation(
+        this.#requireRoot(),
+        componentId,
+        this.#compatibilityRuntime,
+        { expectedRevision, timeoutMs, signal: controller.signal },
+      )
+      return this.current()
+    } finally {
+      signal?.removeEventListener('abort', forwardAbort)
+      this.#compatibilityValidationControllers.delete(componentId)
+    }
+  }
+
+  cancelRuntimeValidation(componentId: string): boolean {
+    const controller = this.#compatibilityValidationControllers.get(componentId)
+    if (!controller) return false
+    controller.abort()
+    return true
   }
 
   async delete(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
@@ -440,6 +511,22 @@ export class StudioProjectService {
             continue
           }
           if (this.#lastNotifiedHash === currentHash) continue
+          // Refresh the shared project projection before notifying Renderer subscribers. Do not
+          // call current() here: that would consume a pending backup-recovery notice before GUI
+          // readers can display it.
+          this.#index.touch(result.path, result.project)
+          const link = this.#agents?.ensureProjectAgent(result.project, result.path) ?? null
+          this.#activeAgentId = link?.agentId ?? this.#activeAgentId
+          this.#cachedState = studioProjectStateSchema.parse({
+            projectPath: result.path,
+            localAgentId: this.#activeAgentId,
+            project: result.project,
+            validation: this.#core.validate(result.project),
+            integrity: result.integrity,
+            recovered: result.recovered || this.#pendingRecoveryNotice,
+            changedExternally: true,
+            cliPath: this.#cliPath,
+          })
           this.#lastNotifiedHash = currentHash
           this.#notifyChanged()
         } catch {

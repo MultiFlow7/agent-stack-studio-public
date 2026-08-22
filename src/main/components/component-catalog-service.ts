@@ -8,6 +8,7 @@ import type { AgentService } from '../agents/agent-service'
 import type { ComponentService } from './component-service'
 import type { StudioProjectService } from '../projects/studio-project-service'
 import { isProjectAgentVersionReference } from '../../shared/agent-detail'
+import { assessComponentCompatibility } from '../../shared/compatibility-assessment'
 
 export class ComponentCatalogService {
   readonly #agents: Pick<AgentService, 'get' | 'list'>
@@ -91,9 +92,18 @@ export class ComponentCatalogService {
           (left, right) => right.createdAt.localeCompare(left.createdAt),
         )
         const validation = component.descriptor.compatibility.validation
-        const assessment = this.#projects
+        const projectAssessment = this.#projects
           ?.activeComposition(activeAgentId ?? '')
           ?.validation?.assessments?.find(({ componentId }) => componentId === component.id)
+        const assessment =
+          projectAssessment ??
+          (activeProject?.components.some(({ id }) => id === component.id)
+            ? assessComponentCompatibility({
+                componentId: component.id,
+                descriptor: component.descriptor,
+                checkedAt: new Date().toISOString(),
+              })
+            : null)
         return componentCatalogItemSchema.parse({
           component,
           usedByAgents,
@@ -103,6 +113,8 @@ export class ComponentCatalogService {
               ? null
               : { status: validation, recordedAt: component.updatedAt },
           assessment: assessment ?? null,
+          auditTrail:
+            activeProject?.components.find(({ id }) => id === component.id)?.auditTrail ?? [],
         })
       }),
     )

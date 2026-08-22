@@ -1905,7 +1905,7 @@ export async function runPackagedAppE2e(options = {}) {
       client,
       `(() => {
         const button = [...document.querySelectorAll('.component-detail button')].find(
-          (element) => element.textContent?.trim() === '移除组件'
+          (element) => element.textContent?.trim() === '永久删除'
         )
         button?.focus()
         button?.click()
@@ -1950,13 +1950,13 @@ export async function runPackagedAppE2e(options = {}) {
     }
     await waitForExpression(
       client,
-      "Boolean([...document.querySelectorAll('.component-detail button')].find((element) => element.textContent?.trim() === '移除组件'))",
+      "Boolean([...document.querySelectorAll('.component-detail button')].find((element) => element.textContent?.trim() === '永久删除'))",
     )
     await evaluate(
       client,
       `(() => {
         const button = [...document.querySelectorAll('.component-detail button')].find(
-          (element) => element.textContent?.trim() === '移除组件'
+          (element) => element.textContent?.trim() === '永久删除'
         )
         button?.focus()
         button?.click()
@@ -2403,6 +2403,393 @@ export async function runPackagedAppE2e(options = {}) {
       `document.body.innerText.includes('修订 ${portableBaseRevision + 18}')`,
     )
 
+    const piSourcePath = path.join(projectPath, 'src', 'test', 'fixtures', 'm31', 'pi')
+    const importedPi = await packagedCli.invoke(
+      'component',
+      'import',
+      piSourcePath,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 17),
+    )
+    const piComponent = importedPi.data?.project?.components?.find(
+      ({ descriptor }) => descriptor.id === 'pi.agent.harness',
+    )
+    if (
+      !importedPi.ok ||
+      importedPi.data?.project?.revision !== portableBaseRevision + 18 ||
+      !piComponent ||
+      piComponent.descriptor.compatibility.level !== 'unknown'
+    ) {
+      throw new Error(`Pi 静态导入失败：${JSON.stringify(importedPi)}`)
+    }
+    await evaluate(client, `document.querySelector('nav button[aria-label="组件库"]')?.click()`)
+    await waitForExpression(client, "document.querySelector('h1')?.textContent === '组件库'")
+    await waitForExpression(client, "document.body.innerText.includes('pi-agent-harness')")
+    await waitForExpression(client, "document.body.innerText.includes('机器证据不足')")
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.catalog-component-link')].find(
+          (element) => element.textContent?.includes('pi-agent-harness')
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('不是等待用户点击确认') && document.body.innerText.includes('能力替换边界')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const section = [...document.querySelectorAll('.component-detail section')].find(
+          (element) => element.querySelector('h3')?.textContent?.trim() === '可解释的兼容性评估'
+        )
+        section?.scrollIntoView({ block: 'start' })
+        return Boolean(section)
+      })()`,
+    )
+    const compatibilityUnknownScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    const compatibilityUnknownScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-compatibility-machine-evidence-missing${extension}`
+    await writeFile(
+      compatibilityUnknownScreenshotPath,
+      Buffer.from(compatibilityUnknownScreenshot.data, 'base64'),
+    )
+
+    const untrustedDescriptor = {
+      ...piComponent.descriptor,
+      provides: piComponent.descriptor.provides.map((provider) => ({
+        ...provider,
+        replaceability: 'adapter-required',
+        activation: 'owner-only',
+      })),
+      runtimeAdapter: './should-never-run.js',
+      compatibility: {
+        ...piComponent.descriptor.compatibility,
+        level: 'adapter',
+        validation: 'runtime-verified',
+        detail: 'Pi 作为执行控制 Owner，需要内置 Harness Adapter 契约。',
+        strategyRationale: '保留 Pi 外层执行控制，通过可审计 Adapter 连接。',
+        strategySelectedAt: new Date().toISOString(),
+      },
+      evidence: [
+        ...piComponent.descriptor.evidence,
+        { kind: 'runtime-check', detail: 'FORGED_RUNTIME_EVIDENCE_MUST_BE_DROPPED' },
+      ],
+    }
+    const piDescriptorPath = path.join(packagedCli.fixturePath, 'pi-descriptor.json')
+    await writeFile(piDescriptorPath, `${JSON.stringify(untrustedDescriptor, null, 2)}\n`)
+    const selectedPiStrategy = await packagedCli.invoke(
+      'component',
+      'update',
+      piComponent.id,
+      '--descriptor',
+      piDescriptorPath,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 18),
+    )
+    const selectedPi = selectedPiStrategy.data?.project?.components?.find(
+      ({ id }) => id === piComponent.id,
+    )
+    if (
+      !selectedPiStrategy.ok ||
+      selectedPiStrategy.data?.project?.revision !== portableBaseRevision + 19 ||
+      selectedPi?.descriptor?.compatibility?.validation !== 'declared' ||
+      selectedPi?.descriptor?.evidence?.some(
+        ({ detail }) => detail === 'FORGED_RUNTIME_EVIDENCE_MUST_BE_DROPPED',
+      )
+    ) {
+      throw new Error(`Descriptor 策略/证据隔离失败：${JSON.stringify(selectedPiStrategy)}`)
+    }
+    const piContractUntrusted = await packagedCli.invoke(
+      'component',
+      'contract-test',
+      piComponent.id,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 19),
+    )
+    if (
+      !piContractUntrusted.ok ||
+      piContractUntrusted.data?.project?.revision !== portableBaseRevision + 20
+    ) {
+      throw new Error(`Pi 契约测试失败：${JSON.stringify(piContractUntrusted)}`)
+    }
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('契约测试通过') && document.body.innerText.includes('需要 Adapter')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.component-detail button')].find(
+          (element) => element.textContent?.trim() === '更新 Descriptor'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      `(() => {
+        const form = document.querySelector('.descriptor-form')
+        const strategy = [...(form?.querySelectorAll('label') ?? [])].find(
+          (label) => label.querySelector('span')?.textContent?.trim() === '策略'
+        )?.querySelector('select')
+        return strategy?.value === 'adapter' && document.body.innerText.includes('验证等级（系统只读）')
+      })()`,
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const fieldset = [...document.querySelectorAll('.descriptor-form fieldset')].find(
+          (element) => element.querySelector('legend')?.textContent?.trim() === '兼容处置策略'
+        )
+        fieldset?.scrollIntoView({ block: 'start' })
+        return Boolean(fieldset)
+      })()`,
+    )
+    const compatibilityStrategyScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    const compatibilityStrategyScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-compatibility-adapter-strategy${extension}`
+    await writeFile(
+      compatibilityStrategyScreenshotPath,
+      Buffer.from(compatibilityStrategyScreenshot.data, 'base64'),
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.descriptor-form button')].find(
+          (element) => element.textContent?.trim() === '取消'
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.compatibility-actions button')].find(
+          (element) => element.textContent?.trim() === '进入受信最小运行验证'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.querySelector('.detail-feedback--error')?.textContent?.includes('精确白名单')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const error = document.querySelector('.detail-feedback--error')
+        error?.scrollIntoView({ block: 'start' })
+        return Boolean(error)
+      })()`,
+    )
+    const compatibilityFailureScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    const compatibilityFailureScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-compatibility-validation-failed${extension}`
+    await writeFile(
+      compatibilityFailureScreenshotPath,
+      Buffer.from(compatibilityFailureScreenshot.data, 'base64'),
+    )
+
+    const trustedDescriptor = {
+      ...selectedPi.descriptor,
+      runtimeAdapter: 'studio://runtime/harness-x',
+    }
+    await writeFile(piDescriptorPath, `${JSON.stringify(trustedDescriptor, null, 2)}\n`)
+    const trustedPiStrategy = await packagedCli.invoke(
+      'component',
+      'update',
+      piComponent.id,
+      '--descriptor',
+      piDescriptorPath,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 20),
+    )
+    const trustedPiContract = await packagedCli.invoke(
+      'component',
+      'contract-test',
+      piComponent.id,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 21),
+    )
+    if (
+      !trustedPiStrategy.ok ||
+      !trustedPiContract.ok ||
+      trustedPiContract.data?.project?.revision !== portableBaseRevision + 22
+    ) {
+      throw new Error(
+        `Pi 白名单 Adapter 处置失败：${JSON.stringify({ trustedPiStrategy, trustedPiContract })}`,
+      )
+    }
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('studio://runtime/harness-x') && document.body.innerText.includes('进入受信最小运行验证')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.compatibility-actions button')].find(
+          (element) => element.textContent?.trim() === '进入受信最小运行验证'
+        )
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "Boolean([...document.querySelectorAll('.component-detail button')].find((element) => element.textContent?.trim() === '取消运行验证'))",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.component-detail button')].find(
+          (element) => element.textContent?.trim() === '取消运行验证'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('正在取消运行验证，本次不会写入证据')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const status = document.querySelector('.detail-feedback[role="status"]')
+        status?.scrollIntoView({ block: 'start' })
+        return Boolean(status)
+      })()`,
+    )
+    const compatibilityCancelledScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    const compatibilityCancelledScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-compatibility-validation-cancelled${extension}`
+    await writeFile(
+      compatibilityCancelledScreenshotPath,
+      Buffer.from(compatibilityCancelledScreenshot.data, 'base64'),
+    )
+    await waitForExpression(
+      client,
+      "Boolean([...document.querySelectorAll('.compatibility-actions button')].find((element) => element.textContent?.trim() === '进入受信最小运行验证' && !element.disabled))",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.compatibility-actions button')].find(
+          (element) => element.textContent?.trim() === '进入受信最小运行验证'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('受信最小运行验证已通过') && document.body.innerText.includes('运行验证通过')",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const status = document.querySelector('.detail-feedback[role="status"]')
+        status?.scrollIntoView({ block: 'start' })
+        return Boolean(status)
+      })()`,
+    )
+    const compatibilitySucceededScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    const compatibilitySucceededScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-compatibility-validation-succeeded${extension}`
+    await writeFile(
+      compatibilitySucceededScreenshotPath,
+      Buffer.from(compatibilitySucceededScreenshot.data, 'base64'),
+    )
+
+    const archivedPi = await packagedCli.invoke(
+      'component',
+      'archive',
+      piComponent.id,
+      '--project',
+      packagedCli.fixturePath,
+      '--revision',
+      String(portableBaseRevision + 23),
+    )
+    if (!archivedPi.ok || archivedPi.data?.project?.revision !== portableBaseRevision + 24) {
+      throw new Error(`Pi 归档失败：${JSON.stringify(archivedPi)}`)
+    }
+    await waitForExpression(
+      client,
+      "Boolean([...document.querySelectorAll('.component-detail button')].find((element) => element.textContent?.trim() === '恢复组件'))",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const button = [...document.querySelectorAll('.component-detail button')].find(
+          (element) => element.textContent?.trim() === '恢复组件'
+        )
+        button?.focus()
+        button?.click()
+        return Boolean(button)
+      })()`,
+    )
+    await waitForExpression(
+      client,
+      "document.body.innerText.includes('组件已恢复，现在可在 Agent Stack 中选择') && Boolean([...document.querySelectorAll('.component-detail button')].find((element) => element.textContent?.trim() === '归档组件'))",
+    )
+    await evaluate(
+      client,
+      `(() => {
+        const status = document.querySelector('.detail-feedback[role="status"]')
+        status?.scrollIntoView({ block: 'start' })
+        return Boolean(status)
+      })()`,
+    )
+    const componentRestoreScreenshot = await client.send('Page.captureScreenshot', {
+      format: 'png',
+    })
+    const componentRestoreScreenshotPath = `${screenshotPath.slice(0, -extension.length)}-component-restored${extension}`
+    await writeFile(
+      componentRestoreScreenshotPath,
+      Buffer.from(componentRestoreScreenshot.data, 'base64'),
+    )
+    const restoredPi = await packagedCli.invoke(
+      'project',
+      'inspect',
+      '--project',
+      packagedCli.fixturePath,
+    )
+    if (
+      !restoredPi.ok ||
+      restoredPi.data?.project?.revision !== portableBaseRevision + 25 ||
+      restoredPi.data?.project?.components?.find(({ id }) => id === piComponent.id)?.archivedAt !==
+        null
+    ) {
+      throw new Error(`Pi 恢复未由包内 CLI 读到：${JSON.stringify(restoredPi)}`)
+    }
+
     await evaluate(
       client,
       `(() => {
@@ -2435,7 +2822,7 @@ export async function runPackagedAppE2e(options = {}) {
     const finalCliPackage = JSON.parse(await readFile(packagedCli.portablePackagePath, 'utf8'))
     if (
       !finalCliExport.ok ||
-      finalCliExport.data?.projectRevision !== portableBaseRevision + 17 ||
+      finalCliExport.data?.projectRevision !== portableBaseRevision + 25 ||
       finalCliExport.data?.workflowCount !== 1 ||
       JSON.stringify(finalGuiPackage) !== JSON.stringify(finalCliPackage) ||
       finalGuiPackage.project?.workflows?.[0]?.versions?.length !== 1
@@ -2451,7 +2838,7 @@ export async function runPackagedAppE2e(options = {}) {
       projectFormatVersion: packagedCli.projectFormatVersion,
       packageHash: finalGuiPackage.contentHash,
       packageFormatVersion: finalGuiPackage.packageFormatVersion,
-      finalRevision: restoredWorkflowEdge.data.project.revision,
+      finalRevision: restoredPi.data.project.revision,
       componentId: importedComponent.id,
       workflowId,
     }
@@ -2481,6 +2868,12 @@ export async function runPackagedAppE2e(options = {}) {
       portablePackageArtifactPath,
       workflowScreenshotPath,
       workflowCycleScreenshotPath,
+      compatibilityUnknownScreenshotPath,
+      compatibilityStrategyScreenshotPath,
+      compatibilityFailureScreenshotPath,
+      compatibilityCancelledScreenshotPath,
+      compatibilitySucceededScreenshotPath,
+      componentRestoreScreenshotPath,
       rendererBoundary,
       reachableNavigation,
       accessibilityTree,
@@ -2535,6 +2928,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`PORTABLE_PACKAGE ${result.portablePackageArtifactPath}`)
       console.log(`WORKFLOW_DAG_SCREENSHOT ${result.workflowScreenshotPath}`)
       console.log(`WORKFLOW_CYCLE_SCREENSHOT ${result.workflowCycleScreenshotPath}`)
+      console.log(`COMPATIBILITY_UNKNOWN_SCREENSHOT ${result.compatibilityUnknownScreenshotPath}`)
+      console.log(`COMPATIBILITY_STRATEGY_SCREENSHOT ${result.compatibilityStrategyScreenshotPath}`)
+      console.log(`COMPATIBILITY_FAILURE_SCREENSHOT ${result.compatibilityFailureScreenshotPath}`)
+      console.log(
+        `COMPATIBILITY_CANCELLED_SCREENSHOT ${result.compatibilityCancelledScreenshotPath}`,
+      )
+      console.log(
+        `COMPATIBILITY_SUCCEEDED_SCREENSHOT ${result.compatibilitySucceededScreenshotPath}`,
+      )
+      console.log(`COMPONENT_RESTORE_SCREENSHOT ${result.componentRestoreScreenshotPath}`)
       console.log(`PACKAGED_CLI ${result.packagedCli.cliPath}`)
       console.log(`PACKAGED_CLI_VERSION ${result.packagedCli.version}`)
       console.log(`PACKAGED_CLI_PROJECT_FORMAT ${result.packagedCli.projectFormatVersion}`)
@@ -2562,6 +2965,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log('PACKAGED_GUI_CLI_BIDIRECTIONAL VERIFIED')
       console.log('SECRET_FREE_PORTABLE_PACKAGE VERIFIED')
       console.log('VERSIONED_WORKFLOW_DAG VERIFIED')
+      console.log('COMPATIBILITY_REMEDIATION_WORKFLOW VERIFIED')
+      console.log('COMPONENT_ARCHIVE_RESTORE VERIFIED')
     })
     .catch((error) => {
       console.error(error instanceof Error ? error.message : error)

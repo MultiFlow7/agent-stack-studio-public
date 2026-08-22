@@ -178,6 +178,17 @@ export function App() {
     }
   }, [commandSnapshot?.activity.activeRunCount, loadCommandCenter])
 
+  useEffect(() => {
+    const openComponent = (event: Event) => {
+      const componentId = (event as CustomEvent<{ componentId?: string }>).detail?.componentId
+      if (!componentId) return
+      openView('components')
+      setSelectedComponentId(componentId)
+    }
+    window.addEventListener('studio:navigate-component', openComponent)
+    return () => window.removeEventListener('studio:navigate-component', openComponent)
+  }, [openView])
+
   const loadAgents = useCallback(async () => {
     const request = ++agentListRequest.current
     setStatus('loading')

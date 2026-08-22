@@ -4,6 +4,9 @@ import { ipcChannels } from '../../shared/ipc'
 import {
   emptyProjectInputSchema,
   projectComponentInputSchema,
+  projectComponentValidationInputSchema,
+  projectComponentCancelInputSchema,
+  projectComponentCancelResultSchema,
   projectDescriptorInputSchema,
   projectMutationInputSchema,
   projectOwnerInputSchema,
@@ -103,6 +106,21 @@ export function registerStudioProjectIpc(options: {
         options.projects.archive(input.componentId, input.expectedRevision),
     ],
     [
+      ipcChannels.studioProjectComponentRestore,
+      (input: typeof projectComponentInputSchema._output) =>
+        options.projects.restore(input.componentId, input.expectedRevision),
+    ],
+    [
+      ipcChannels.studioProjectComponentRecheck,
+      (input: typeof projectComponentInputSchema._output) =>
+        options.projects.recheck(input.componentId, input.expectedRevision),
+    ],
+    [
+      ipcChannels.studioProjectComponentContractTest,
+      (input: typeof projectComponentInputSchema._output) =>
+        options.projects.contractTest(input.componentId, input.expectedRevision),
+    ],
+    [
       ipcChannels.studioProjectComponentDelete,
       (input: typeof projectComponentInputSchema._output) =>
         options.projects.delete(input.componentId, input.expectedRevision),
@@ -127,6 +145,25 @@ export function registerStudioProjectIpc(options: {
       }),
     )
   }
+  ipcMain.handle(
+    ipcChannels.studioProjectComponentRuntimeValidate,
+    createValidatedHandler({
+      input: projectComponentValidationInputSchema,
+      output: studioProjectStateSchema,
+      handle: ({ componentId, expectedRevision, timeoutMs }) =>
+        options.projects.runtimeValidate(componentId, expectedRevision, timeoutMs),
+    }),
+  )
+  ipcMain.handle(
+    ipcChannels.studioProjectComponentRuntimeCancel,
+    createValidatedHandler({
+      input: projectComponentCancelInputSchema,
+      output: projectComponentCancelResultSchema,
+      handle: ({ componentId }) => ({
+        cancelled: options.projects.cancelRuntimeValidation(componentId),
+      }),
+    }),
+  )
   ipcMain.handle(
     ipcChannels.studioProjectOwnerSet,
     createValidatedHandler({
@@ -252,6 +289,11 @@ export function registerStudioProjectIpc(options: {
     ipcChannels.studioProjectImport,
     ipcChannels.studioProjectDescriptorUpdate,
     ipcChannels.studioProjectComponentArchive,
+    ipcChannels.studioProjectComponentRestore,
+    ipcChannels.studioProjectComponentRecheck,
+    ipcChannels.studioProjectComponentContractTest,
+    ipcChannels.studioProjectComponentRuntimeValidate,
+    ipcChannels.studioProjectComponentRuntimeCancel,
     ipcChannels.studioProjectComponentDelete,
     ipcChannels.studioProjectStackAdd,
     ipcChannels.studioProjectStackRemove,

@@ -351,3 +351,12 @@ flowchart LR
 - 启动迁移先写经 Core 验证的项目与 `.agent-stack.migration-backup`，再以单一 SQLite 事务写入引用并清理可携副本。任一步失败均可幂等重试；无法无损归属的孤立数据安全停止启动。
 
 M30 明确取代上文 M29 “SQLite v8 不变”的时点性描述；项目/Package 格式仍为 v2，Runtime 消息与 CLI 项目命令保持兼容。
+
+## 36. M31 兼容证据管线
+
+- `CompatibilityAssessment` 保持 Core 派生投影，但 `suggestedActions` 改为严格结构，Renderer 只映射到白名单按钮、表单或外部步骤，不自行推断兼容性。
+- Descriptor 写入边界把 validation/evidence 视为系统专用字段；Renderer 或 CLI 提交的同名值被 Core 丢弃。结构、能力、依赖、配置、权限、密钥引用、Adapter 或策略改变会把当前契约/运行证据标记 `supersededAt`。
+- 确定性契约测试仅读取经 schema 验证的 Descriptor，生成内容哈希、Receipt ID、方法和时间，不 import 项目代码。受信运行验证要求前置契约通过和精确 `trustedRuntimeAdapterRefs` 命中。
+- Main 为每个 Component 保持单航班 `AbortController`，子进程只接收 component ID、contract ID/version 和白名单 Adapter 引用。子进程中 Cordis 内核真实启动内置 Adapter 生命周期；超时/取消先协作通知，有界宽限后 `SIGKILL`。stdout/stderr 被丢弃，仅严格 Receipt 跨 IPC。
+- 归档/恢复、复查、契约测试与运行验证经同一 Studio Core 暴露给 CLI 和 schema-validated Main IPC/Preload。Renderer 仍无 Node/FS/DB/Keychain 权限。
+- M31 对 `.agent-stack` v2 作加法型字段扩展，不增加 SQLite 副本，不暴露 Cordis 类型。历史 unknown/user-confirmed 依旧可读并显式映射为非技术证据。

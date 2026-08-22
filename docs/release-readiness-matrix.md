@@ -40,7 +40,7 @@
 | RR-030 | 用户实施要求 | 每个里程碑提交、推送并确认 GitHub CI | COMPLETE | M13–M30 实现 CI 均成功；M30 私有实现 `24b6a67` + 稳定性修复 `79f27e1` 与公开快照 `5082dbc` 共享 tree `f4058c77c910bef213c96f0f8ec9800dca7e0148`，公开 run `32549181357` 成功 | 公开 GitHub hosted runner | 每切片保留相同 tree 证据并等待 CI |
 | RR-031 | 用户停止条件 14 | 最终报告关联需求 ID、提交、测试、包路径、截图、CI | COMPLETE | `generate:final-report` 从两张矩阵与证据 manifest 生成 `release/final-local-completeness-report.json`，M30 含 150 条需求、9 条命令、4 个包路径和 23 张本地截图；报告注入 M30 私有/公开提交与成功 CI | 无 | `verify:final-report` strict + artifacts 验证 |
 | RR-032 | M21；用户分发要求 7 | 正式分发前 Workflow 已进入稳定项目/包协议且历史项目无需领域重写 | COMPLETE | project/package v2、v0/v1 迁移、v3 前向拒绝、历史 v1 快照哈希保留、Workflow Core/CLI/IPC/GUI 与最终 arm64 包全部通过；最终 v2 包含 1 Workflow/1 Version 且无本机路径或敏感值 | 无 | `VERSIONED_WORKFLOW_DAG VERIFIED`；release compatibility/ASAR/package/E2E 证据 |
-| RR-033 | M22；用户分发要求 7 | Adapter/Fork 处置链和 Component 生命周期无需为正式分发改写项目/DB/Runtime | COMPLETE | 任务由 Descriptor 确定派生，不进入 SQLite、项目/包、Version 或 Runtime Plan；GUI/CLI 共用 Core，最终包 revision 15 逐字一致 | 无 | remediation/Core/CLI/UI tests；`COMPONENT_REMEDIATION_TASKS VERIFIED`；`PROJECT_COMPONENT_LIFECYCLE VERIFIED` |
+| RR-033 | M22/M31；ADR 0010；用户分发要求 7 | Adapter/Fork 处置链和 Component 归档/恢复生命周期无需为正式分发改写 DB 职责 | COMPLETE | 兼容策略/证据/审计与生命周期是 `.agent-stack` v2 加法事实；SQLite 无同步副本；GUI/CLI 共用 Core | 无 | remediation/Core/CLI/IPC/UI/runtime tests；packaged GUI↔CLI 一致与恢复证据 |
 | RR-034 | M23；用户分发要求 7 | Run 历史失败/变量/耗时/Drift 无需为正式分发改写项目或 Runtime | COMPLETE | 只读服务从既有 Run Manifest、时间戳与 Experiment 定义派生；SQLite v9 只新增 Agent 项目引用，项目/包 v2 与 Runtime 协议保持不变 | 无 | Service/IPC/Renderer tests；真实 packaged 超时；`RUN_HISTORY_OBSERVABILITY VERIFIED` |
 | RR-035 | M24；用户分发要求 7 | Experiment 部分结果、筛选、指标与相对基线无需为正式分发改写持久化或业务协议 | COMPLETE | Renderer 从既有严格 `ExperimentDetail` 的 definition/cells/comparison/drift 只读派生；无新 IPC、SQLite、项目/包、Runtime 或 CLI 项目字段 | 无 | Renderer tests；真实 1 成功 + 3 取消 packaged E2E；`EXPERIMENT_MATRIX_OBSERVABILITY VERIFIED` |
 | RR-036 | M25；用户分发要求 7 | 来源发现错误/恢复状态无需为正式分发引入凭证、持久化或新业务协议 | COMPLETE | 固定 GitHub Adapter 细分 timeout/network；既有 6 个白名单 IPC 统一净化错误；Renderer 临时状态零持久化，项目/DB/Runtime/CLI 项目协议不变 | 真实 GitHub 可用性不作为打包成功条件 | Provider/Renderer tests；确定性本地校验 packaged E2E；`SOURCE_DISCOVERY_STATE_COVERAGE VERIFIED` |
@@ -50,7 +50,7 @@
 | RR-040 | M30；ADR 0009 | Agent-first 主流程与项目设置次级化在正式包中完整可达 | COMPLETE | 六个一级入口；Agent 组装、兼容性、冻结和后续入口；顶栏打开项目设置 | 无 | packaged E2E 、AX tree 与中文截图 |
 | RR-041 | M30；SQLite v9 | 发布升级不丢失旧 Agent/Component 或历史 Version 引用 | COMPLETE | v1→v9 数据库迁移与 legacy portable migration 覆盖新装、幂等、备份、失败恢复、冲突和较新版拒绝 | 无 | migration/Core/package startup tests |
 | RR-042 | M30；单一事实源 | 正式分发无需运行 Component/Stack 双库同步器 | COMPLETE | GUI/CLI 共用 `.agent-stack` v2；SQLite v9 只保留稳定引用与本机运行事实 | 无 | service/repository/packaged GUI↔CLI tests |
-| RR-043 | M30；安全边界 | Compatibility Assessment 不执行未知代码，受信 Runtime 路径保留超时、取消、脱敏、Artifact 与 Receipt | COMPLETE | 共享静态评估器 + Runtime 精确白名单；Renderer 无 Node/FS/DB/Keychain | 无 | compatibility/runtime/security/package verification tests |
+| RR-043 | M30/M31；ADR 0010；安全边界 | Compatibility Assessment/Contract Test 不执行未知代码；受信 Runtime 真实验证内置 Adapter 生命周期，覆盖超时、取消、脱敏、Artifact 与 Receipt | COMPLETE | 共享静态评估器 + Core 系统证据写入 + Runtime 精确白名单/全新 Cordis 子进程；Renderer 无 Node/FS/DB/Keychain | 无 | Pi/MRAgent、trusted runtime/Core/IPC/security/package verification tests |
 
 ## 首次冻结结论
 

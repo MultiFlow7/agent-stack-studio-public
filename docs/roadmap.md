@@ -377,3 +377,13 @@ CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍�
 远程证据：私有实现提交 `24b6a67` 与稳定性修复 `79f27e1`，公开快照 `5082dbc`，共享 tree `f4058c77c910bef213c96f0f8ec9800dca7e0148`；公开 GitHub macOS CI run `32549181357` 成功，完成 Intel x64 项目检查、应用打包、包验证、packaged E2E 和无凭证 release dry-run。
 
 CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取消 IPC 到达前全部结束的跨架构竞态；修复将该真实验收场景扩展为 12 个单元，本地连续两次通过，并由上述 Intel run 重新验证。
+
+## M31：组件兼容性确认与处置闭环
+
+- 将“待确认”改为“机器证据不足”，为每项缺失证据和 suggested action 提供实际入口。
+- 完整结构化编辑能力/依赖/替换性/激活/配置/权限/Keychain 引用/策略，且隔离人工决策与系统证据写入。
+- 增加确定性契约测试和精确白名单受信 Runtime 验证，覆盖超时、取消、异常清理、日志脱敏、Artifact 与 Receipt。
+- 完成 Component active/archived/all 筛选、归档、恢复与受引用保护的永久删除闭环。
+- 以 Pi 执行 Owner + MRAgent memory/state-store 修正验证 unknown 处置，不执行 fixture 中的未知脚本。
+
+完成条件：Core/CLI/IPC/Preload/Renderer 共用闭环，结构表单的冲突/取消/审计有自动证据，受信子进程真实启停，最终 arm64 GUI 与包内 CLI、恢复/失败/取消/成功截图、隐私门禁和公开 CI 全部通过。

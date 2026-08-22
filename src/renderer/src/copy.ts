@@ -38,12 +38,12 @@ export const compatibilityLabels: Record<ComponentDescriptor['compatibility']['l
   adapter: '需要 Adapter',
   fork: '需要 Fork',
   blocked: '不兼容',
-  unknown: '待确认',
+  unknown: '机器证据不足',
 }
 
 export const validationLabels: Record<ComponentDescriptor['compatibility']['validation'], string> =
   {
-    declared: '已声明',
+    declared: '未有技术验证',
     'contract-tested': '已通过契约测试',
     'runtime-verified': '已验证兼容',
     failed: '验证失败',

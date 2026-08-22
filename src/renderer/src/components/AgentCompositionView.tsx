@@ -2,6 +2,7 @@ import { ArrowClockwise, CheckCircle, WarningCircle } from '@phosphor-icons/reac
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StudioProjectState } from '../../../shared/studio-project'
 import { compatibilityAssessmentLabels } from '../copy'
+import type { CompatibilityAction } from '../../../shared/compatibility-assessment'
 import { RemediationTaskList } from './RemediationTaskList'
 import { StackEditorView } from './StackEditorView'
 import { WorkflowSection } from './WorkflowSection'
@@ -9,6 +10,21 @@ import { WorkflowSection } from './WorkflowSection'
 interface AgentCompositionViewProps {
   agentId: string
   onChanged: () => Promise<void>
+}
+
+const validationIssueLabels: Record<string, string> = {
+  EMPTY_STACK: 'Stack 为空',
+  COMPONENT_MISSING: '组件引用缺失',
+  COMPONENT_ARCHIVED: '组件已归档',
+  OWNER_REQUIRED: '需要选择 Owner',
+  OWNER_INVALID: 'Owner 无效',
+  UNSATISFIED_REQUIREMENT: '依赖未满足',
+  COMPONENT_BLOCKED: '组件不兼容',
+  COMPATIBILITY_UNKNOWN: '机器证据不足',
+  ADAPTER_UNVERIFIED: 'Adapter 尚未验证',
+  UNCONTROLLED_SIDE_EFFECT: '存在未受控激活',
+  SOURCE_DIRTY: '来源存在未提交更改',
+  SOURCE_UNAVAILABLE: '来源不可用',
 }
 
 export function AgentCompositionView({ agentId, onChanged }: AgentCompositionViewProps) {
@@ -73,6 +89,51 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
     )
   }
   const { project, validation } = state
+  const handleCompatibilityAction = async (
+    componentId: string,
+    action: CompatibilityAction,
+  ): Promise<void> => {
+    if (
+      action.action === 'edit-contract' ||
+      action.action === 'declare-configuration' ||
+      action.action === 'select-strategy'
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('studio:navigate-component', { detail: { componentId } }),
+      )
+      return
+    }
+    if (action.presentation === 'external-step') return
+    await run(
+      `${componentId}:${action.action}`,
+      () => {
+        const input = { componentId, expectedRevision: project.revision }
+        if (action.action === 'recheck-static') {
+          return window.studio.studioProject!.recheckComponent(input)
+        }
+        if (action.action === 'run-contract-test') {
+          return window.studio.studioProject!.runComponentContractTest(input)
+        }
+        if (action.action === 'run-trusted-validation') {
+          return window.studio.studioProject!.runComponentRuntimeValidation({
+            ...input,
+            timeoutMs: 5_000,
+          })
+        }
+        return window.studio.studioProject!.current()
+      },
+      `${action.label}已完成。`,
+    )
+  }
+  const openIssueResolution = (componentId: string | null): void => {
+    if (componentId) {
+      window.dispatchEvent(
+        new CustomEvent('studio:navigate-component', { detail: { componentId } }),
+      )
+      return
+    }
+    document.getElementById('stack-editor-heading')?.focus()
+  }
   return (
     <div className="agent-composition">
       {error ? (
@@ -121,8 +182,29 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
             {validation.assessments.map((assessment) => (
               <li key={assessment.componentId}>
                 <strong>{compatibilityAssessmentLabels[assessment.status]}</strong>
-                <span>{assessment.blockers[0] ?? assessment.evidence[0]?.detail}</span>
-                <small>{assessment.suggestedActions[0]}</small>
+                <span>{assessment.explanation}</span>
+                <div className="assessment-inline-actions">
+                  {assessment.suggestedActions.map((action) =>
+                    action.presentation === 'external-step' ? (
+                      <details key={action.id}>
+                        <summary>{action.label}</summary>
+                        <p>{action.externalStep}</p>
+                      </details>
+                    ) : (
+                      <button
+                        className="button button--quiet"
+                        disabled={Boolean(pending) || !action.enabled}
+                        key={action.id}
+                        onClick={() =>
+                          void handleCompatibilityAction(assessment.componentId, action)
+                        }
+                        type="button"
+                      >
+                        {action.label}
+                      </button>
+                    ),
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -131,9 +213,27 @@ export function AgentCompositionView({ agentId, onChanged }: AgentCompositionVie
           <ul>
             {validation.issues.map((issue, index) => (
               <li key={`${issue.code}-${index}`}>
-                <strong>{issue.code}</strong>
+                <strong>{validationIssueLabels[issue.code] ?? '需处理的组合问题'}</strong>
                 <span>{issue.message}</span>
-                <small>{issue.suggestedActions[0]}</small>
+                <div className="assessment-inline-actions">
+                  {issue.suggestedActions.map((suggestion) =>
+                    issue.code === 'SOURCE_DIRTY' || issue.code === 'SOURCE_UNAVAILABLE' ? (
+                      <details key={suggestion}>
+                        <summary>查看外部处置步骤</summary>
+                        <p>{suggestion}</p>
+                      </details>
+                    ) : (
+                      <button
+                        className="button button--quiet"
+                        key={suggestion}
+                        onClick={() => openIssueResolution(issue.componentId)}
+                        type="button"
+                      >
+                        {issue.componentId ? '前往组件处置' : '在 Stack 编辑器处理'}
+                      </button>
+                    ),
+                  )}
+                </div>
               </li>
             ))}
           </ul>

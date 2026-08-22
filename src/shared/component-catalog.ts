@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { componentRecordSchema, validationStatusSchema } from './component'
+import {
+  componentAuditEntrySchema,
+  componentRecordSchema,
+  validationStatusSchema,
+} from './component'
 import { compatibilityAssessmentSchema } from './compatibility-assessment'
 
 export const componentCatalogItemSchema = z
@@ -34,6 +38,7 @@ export const componentCatalogItemSchema = z
       .strict()
       .nullable(),
     assessment: compatibilityAssessmentSchema.nullable().optional(),
+    auditTrail: z.array(componentAuditEntrySchema).optional(),
   })
   .strict()
 

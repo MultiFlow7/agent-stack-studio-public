@@ -11,7 +11,7 @@ describe('safe component inspection', () => {
     expect(inspection.descriptor.compatibility.level).toBe('unknown')
     expect(inspection.source.files).toContain('should-never-run.js')
     expect(inspection.warnings).toContain(
-      '未发现 agent-stack.component.json，已生成需要用户确认的候选 Descriptor。',
+      '未发现 agent-stack.component.json，已生成机器证据不足的候选 Descriptor；用户编辑不能代替技术验证。',
     )
   })
 

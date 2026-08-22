@@ -1,0 +1,7 @@
+{
+  "name": "mr-agent-memory",
+  "version": "0.2.0",
+  "scripts": {
+    "prepare": "node should-never-run.js"
+  }
+}

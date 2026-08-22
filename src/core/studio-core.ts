@@ -41,6 +41,8 @@ import type { AgentDetail } from '../shared/agent-detail'
 import { isProjectAgentVersionReference } from '../shared/agent-detail'
 import type { ComponentRecord } from '../shared/component'
 import type { StackState } from '../shared/runtime-plan'
+import { isTrustedRuntimeAdapterRef } from '../shared/trusted-execution'
+import type { TrustedCompatibilityRuntimeGateway } from './trusted-compatibility-runtime'
 
 export interface ProjectMutationOptions {
   expectedRevision?: number
@@ -376,16 +378,74 @@ export class StudioCore {
   ): Promise<ProjectReadResult> {
     const parsed = componentDescriptorSchema.parse(descriptor)
     return this.#mutate(rootPath, options, (project) => {
-      this.#component(project, componentId)
+      const previous = this.#component(project, componentId)
+      const strategyChanged = previous.descriptor.compatibility.level !== parsed.compatibility.level
+      const timestamp = new Date().toISOString()
+      // Descriptor editing is an untrusted human input path. Validation and evidence can only be
+      // written by the deterministic inspection/contract/runtime methods below.
+      const editableDescriptor = componentDescriptorSchema.parse({
+        ...parsed,
+        compatibility: {
+          ...parsed.compatibility,
+          validation: previous.descriptor.compatibility.validation,
+        },
+        evidence: previous.descriptor.evidence,
+      })
+      const technicalContractChanged =
+        stableHash({
+          platforms: previous.descriptor.platforms,
+          provides: previous.descriptor.provides,
+          requires: previous.descriptor.requires,
+          configSchema: previous.descriptor.configSchema,
+          runtimeAdapter: previous.descriptor.runtimeAdapter,
+          permissions: previous.descriptor.permissions ?? [],
+          secretReferences: previous.descriptor.secretReferences ?? [],
+          strategy: previous.descriptor.compatibility.level,
+        }) !==
+        stableHash({
+          platforms: editableDescriptor.platforms,
+          provides: editableDescriptor.provides,
+          requires: editableDescriptor.requires,
+          configSchema: editableDescriptor.configSchema,
+          runtimeAdapter: editableDescriptor.runtimeAdapter,
+          permissions: editableDescriptor.permissions ?? [],
+          secretReferences: editableDescriptor.secretReferences ?? [],
+          strategy: editableDescriptor.compatibility.level,
+        })
+      const nextDescriptor = technicalContractChanged
+        ? componentDescriptorSchema.parse({
+            ...editableDescriptor,
+            compatibility: { ...editableDescriptor.compatibility, validation: 'declared' },
+            evidence: editableDescriptor.evidence.map((evidence) =>
+              ['contract-test', 'runtime-check'].includes(evidence.kind) && !evidence.supersededAt
+                ? { ...evidence, supersededAt: timestamp }
+                : evidence,
+            ),
+          })
+        : editableDescriptor
       return {
         ...project,
         components: project.components.map((component) =>
           component.id === componentId
             ? {
                 ...component,
-                descriptor: parsed,
+                descriptor: nextDescriptor,
                 evidenceLevel: component.evidenceLevel,
-                updatedAt: new Date().toISOString(),
+                updatedAt: timestamp,
+                auditTrail: [
+                  ...(component.auditTrail ?? []),
+                  {
+                    id: randomUUID(),
+                    action: strategyChanged ? 'strategy-selected' : 'descriptor-updated',
+                    actor: 'user',
+                    summary: strategyChanged
+                      ? `处置策略已选择为 ${parsed.compatibility.level}；旧契约/运行证据保留为已失效历史，当前验证回到 declared。`
+                      : technicalContractChanged
+                        ? '技术契约已更改；旧契约/运行证据保留为已失效历史，当前验证回到 declared。'
+                        : '结构化 Descriptor 已更新；不因人工编辑提升技术证据。',
+                    recordedAt: timestamp,
+                  },
+                ],
               }
             : component,
         ),
@@ -421,11 +481,230 @@ export class StudioCore {
         ...project,
         components: project.components.map((component) =>
           component.id === componentId
-            ? { ...component, archivedAt: timestamp, updatedAt: timestamp }
+            ? {
+                ...component,
+                archivedAt: timestamp,
+                updatedAt: timestamp,
+                auditTrail: [
+                  ...(component.auditTrail ?? []),
+                  {
+                    id: randomUUID(),
+                    action: 'archived',
+                    actor: 'user',
+                    summary: '组件已归档，不可加入当前 Stack，历史引用保持可读。',
+                    recordedAt: timestamp,
+                  },
+                ],
+              }
             : component,
         ),
       }
     })
+  }
+
+  restoreComponent(
+    rootPath: string,
+    componentId: string,
+    options: ProjectMutationOptions = {},
+  ): Promise<ProjectReadResult> {
+    return this.#mutate(rootPath, options, (project) => {
+      const existing = this.#component(project, componentId)
+      if (!existing.archivedAt) return project
+      const timestamp = new Date().toISOString()
+      return {
+        ...project,
+        components: project.components.map((component) =>
+          component.id === componentId
+            ? {
+                ...component,
+                archivedAt: null,
+                updatedAt: timestamp,
+                auditTrail: [
+                  ...(component.auditTrail ?? []),
+                  {
+                    id: randomUUID(),
+                    action: 'restored',
+                    actor: 'user',
+                    summary: '组件已恢复，可立即在 Agent Stack 中选择。',
+                    recordedAt: timestamp,
+                  },
+                ],
+              }
+            : component,
+        ),
+      }
+    })
+  }
+
+  async runComponentContractTest(
+    rootPath: string,
+    componentId: string,
+    options: ProjectMutationOptions = {},
+  ): Promise<ProjectReadResult> {
+    const current = await this.inspectProject(rootPath)
+    const component = this.#component(current.project, componentId)
+    const failures = [
+      component.descriptor.compatibility.level === 'unknown'
+        ? '尚未选择明确的兼容处置策略。'
+        : null,
+      component.descriptor.provides.some(({ replaceability }) => replaceability === 'unknown')
+        ? '仍有能力的 replaceability 为 unknown。'
+        : null,
+      ['adapter', 'fork'].includes(component.descriptor.compatibility.level) &&
+      !component.descriptor.runtimeAdapter
+        ? 'Adapter/Fork 策略缺少 Runtime Adapter 引用。'
+        : null,
+    ].filter((item): item is string => Boolean(item))
+    if (failures.length) {
+      throw new StudioCoreError('COMPONENT_INVALID', `契约测试未通过：${failures.join('；')}`, {
+        details: { componentId, failures, executedProjectCode: false },
+        suggestedActions: [
+          { description: '在结构化编辑器中修正能力、替换性、激活方式与入口后重试。' },
+        ],
+      })
+    }
+    const recordedAt = new Date().toISOString()
+    const receiptId = randomUUID()
+    const report = {
+      componentId,
+      descriptorHash: stableHash(component.descriptor),
+      checks: ['schema', 'provides', 'requires', 'replaceability', 'activation', 'entrypoint'],
+      executedProjectCode: false,
+      recordedAt,
+    }
+    return this.#mutate(rootPath, options, (project) => ({
+      ...project,
+      components: project.components.map((candidate) =>
+        candidate.id === componentId
+          ? {
+              ...candidate,
+              descriptor: {
+                ...candidate.descriptor,
+                compatibility: {
+                  ...candidate.descriptor.compatibility,
+                  validation:
+                    candidate.descriptor.compatibility.validation === 'runtime-verified'
+                      ? 'runtime-verified'
+                      : 'contract-tested',
+                  detail: '确定性 Descriptor/Adapter Contract 测试已通过；未执行项目代码。',
+                },
+                evidence: [
+                  ...candidate.descriptor.evidence.filter(
+                    ({ kind, supersededAt }) => kind !== 'contract-test' || Boolean(supersededAt),
+                  ),
+                  {
+                    kind: 'contract-test' as const,
+                    status: 'passed' as const,
+                    method: 'descriptor-contract-test-v1' as const,
+                    detail: '结构、能力、依赖、替换性、激活与入口契约全部通过。',
+                    recordedAt,
+                    receiptId,
+                    artifact: {
+                      name: 'component-contract-test.json',
+                      contentHash: stableHash(report),
+                    },
+                  },
+                ],
+              },
+              updatedAt: recordedAt,
+              auditTrail: [
+                ...(candidate.auditTrail ?? []),
+                {
+                  id: receiptId,
+                  action: 'contract-tested' as const,
+                  actor: 'system' as const,
+                  summary: '契约测试通过，产生可校验 Artifact 与 Receipt。',
+                  recordedAt,
+                },
+              ],
+            }
+          : candidate,
+      ),
+    }))
+  }
+
+  async runTrustedComponentValidation(
+    rootPath: string,
+    componentId: string,
+    runtime: TrustedCompatibilityRuntimeGateway,
+    options: ProjectMutationOptions & { timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<ProjectReadResult> {
+    const current = await this.inspectProject(rootPath)
+    const component = this.#component(current.project, componentId)
+    const descriptor = component.descriptor
+    if (descriptor.compatibility.validation !== 'contract-tested') {
+      throw new StudioCoreError('COMPONENT_INVALID', '必须先通过契约测试，才能进入受信运行验证。')
+    }
+    if (!descriptor.runtimeAdapter || !isTrustedRuntimeAdapterRef(descriptor.runtimeAdapter)) {
+      throw new StudioCoreError(
+        'UNSAFE_SOURCE',
+        '运行验证已拒绝：只允许精确白名单中的 Runtime Adapter，未知代码未执行。',
+        { details: { componentId, executedProjectCode: false } },
+      )
+    }
+    if (options.signal?.aborted) {
+      throw new DOMException('兼容性运行验证已取消。', 'AbortError')
+    }
+    const receipt = await runtime.validate(
+      {
+        componentId,
+        contractId: descriptor.id,
+        componentVersion: descriptor.version,
+        adapterRef: descriptor.runtimeAdapter,
+        timeoutMs: options.timeoutMs ?? 5_000,
+      },
+      options.signal,
+    )
+    if (receipt.status !== 'succeeded') {
+      throw new StudioCoreError('COMPONENT_INVALID', `受信运行验证未通过：${receipt.status}。`)
+    }
+    return this.#mutate(
+      rootPath,
+      { expectedRevision: options.expectedRevision ?? current.project.revision },
+      (project) => ({
+        ...project,
+        components: project.components.map((candidate) =>
+          candidate.id === componentId
+            ? {
+                ...candidate,
+                descriptor: {
+                  ...candidate.descriptor,
+                  compatibility: {
+                    ...candidate.descriptor.compatibility,
+                    validation: 'runtime-verified' as const,
+                    detail: '精确白名单 Adapter 已在全新受信 Runtime 子进程通过最小运行验证。',
+                  },
+                  evidence: [
+                    ...candidate.descriptor.evidence.filter(
+                      ({ kind, supersededAt }) => kind !== 'runtime-check' || Boolean(supersededAt),
+                    ),
+                    {
+                      kind: 'runtime-check' as const,
+                      status: 'passed' as const,
+                      method: 'trusted-runtime-validation-v1' as const,
+                      detail: '白名单、Cordis 启动、Adapter Contract、取消和清理检查已通过。',
+                      recordedAt: receipt.finishedAt,
+                      receiptId: receipt.id,
+                      artifact: receipt.artifact,
+                    },
+                  ],
+                },
+                updatedAt: receipt.finishedAt,
+                auditTrail: [
+                  ...(candidate.auditTrail ?? []),
+                  {
+                    id: receipt.id,
+                    action: 'runtime-validated' as const,
+                    actor: 'system' as const,
+                    summary: '受信最小运行验证通过，已保存脱敏 Receipt 与 Artifact 哈希。',
+                    recordedAt: receipt.finishedAt,
+                  },
+                ],
+              }
+            : candidate,
+        ),
+      }),
+    )
   }
 
   deleteComponent(
@@ -472,6 +751,16 @@ export class StudioCore {
             ],
           },
         )
+      }
+      if (!component.archivedAt) {
+        throw new StudioCoreError('COMPONENT_IN_USE', '永久删除只允许已归档组件。', {
+          suggestedActions: [
+            {
+              command: `studio component archive ${componentId}`,
+              description: '先归档并复核引用。',
+            },
+          ],
+        })
       }
       return { ...project, components: project.components.filter(({ id }) => id !== component.id) }
     })

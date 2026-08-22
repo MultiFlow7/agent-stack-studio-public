@@ -44,3 +44,12 @@ studio secret set|status|delete
 `project audit` 是非交互、只读检查：它不会从备份自动恢复，也不会改写 revision。成功结果包含 `algorithm`、`versionsChecked` 和逐版本的 `contentHash`/`snapshotHash`；不一致返回 `PROJECT_INTEGRITY_FAILED`（退出码 21）及结构化修复建议。普通 `project inspect` 仍可按项目存储契约恢复最后有效备份。
 
 M30 之后，CLI 的 `component`、`stack`、`owner`、`workflow` 和 `version` 项目命令与 GUI Agent 组装器共享同一 `.agent-stack` 事实和 Studio Core 验证逻辑。GUI 导入后 CLI 立即可见，CLI 写入后 GUI 通过外部修改通知刷新；revision 不匹配仍返回稳定冲突错误。CLI 不读写 SQLite Component/Stack 副本，也不执行未受信外部代码。
+
+M31 增加以下生命周期与验证命令：
+
+- `component list --scope active|archived|all`：默认 active，可显式查看已归档组件。
+- `component restore <component-id> --revision <n>`：恢复可选状态并记录审计；重复恢复幂等。
+- `component contract-test <component-id> --revision <n>`：运行确定性 Descriptor/Adapter Contract 检查，不 import 组件项目代码；通过后写入 Receipt 和 Artifact 哈希。
+- `component runtime-validate <component-id> --timeout-ms <n> --revision <n>`：仅对精确白名单 Adapter 启动全新受信 Runtime；`SIGINT`/`SIGTERM` 取消且零证据写入，超时或异常使用稳定错误 envelope。
+
+`component update` 仍接受结构化 Descriptor 文件，但 Core 会忽略其中伪造的 validation/evidence；改变技术契约会回退当前验证并保留 superseded 历史。永久 `component delete` 要求先归档，然后仍执行 Stack/Workflow/Version 引用保护。

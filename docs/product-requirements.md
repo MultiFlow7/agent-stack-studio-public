@@ -334,3 +334,13 @@ Workflow 不与当前产品逻辑冲突。它属于执行控制层，而不是�
 - 当前项目在全局顶栏显示并可切换；路径、revision、完整性、备份恢复和导入导出收纳到次级“项目设置”，不再作为一级工作台。
 - 兼容性评估必须显示未检查、静态通过、需配置、需 Adapter、运行验证通过和不兼容，并附证据、阻断原因、建议动作、时间与方法。Descriptor 编辑不得自动提升证据等级。
 - 旧 SQLite Agent/Component 数据必须通过幂等、可恢复的 v9 迁移转为稳定项目/Version 引用；冲突、缺失、混合引用或较新格式必须显式拒绝，不得静默丢数据。
+
+## 34. M31 兼容处置与 Component 恢复
+
+- 静态导入的 Unknown 必须显示为“机器证据不足”，并精确说明缺少的平台、入口、能力契约、替换性、Adapter 或运行证据；不得暗示等待用户点击确认。
+- 每个 `suggestedAction` 必须是可用按钮、结构化表单或明确外部步骤，覆盖静态复查、契约修正、配置/权限/密钥引用、策略、Owner、契约测试与受信运行验证。
+- Descriptor 表单完整覆盖 `provides`/`requires`/replaceability/activation/platform/configSchema/runtimeAdapter/权限/Keychain 引用和策略；保存经 schema 校验与 revision 冲突保护，取消零写入，全程不编辑 JSON。
+- 策略只是人工处置方向，不得写入契约或运行通过证据。Core 必须忽略人工请求中伪造的 validation/evidence；技术契约改变时回退为 declared，旧证据保留并标记 superseded。
+- 受信运行验证只允许精确白名单内置 Adapter，在全新 Cordis Runtime 子进程真实进行 Adapter 启停、契约、取消与清理检查；未知项目代码不执行，stdout/stderr 不跨边界，仅保存脱敏 Receipt 与 Artifact 哈希。
+- Component 目录支持 active/archived/all 筛选、归档与恢复；恢复后立即可在 Agent Stack 选择。永久删除继续受 Stack、Workflow 和不可变 Version 引用保护。
+- 旧 `unknown`/`user-confirmed` 记录按显式兼容映射读取：保留原始人工证据与备份，不升级技术结论；较新项目格式仍拒绝降级改写。
