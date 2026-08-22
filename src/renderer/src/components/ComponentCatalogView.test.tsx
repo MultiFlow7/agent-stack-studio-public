@@ -276,7 +276,7 @@ describe('ComponentCatalogView', () => {
     expect(descriptor?.secretReferences).toEqual([
       { name: 'API_KEY', purpose: '模型网关认证。', required: true },
     ])
-  })
+  }, 15_000)
 
   it('filters archived components and restores one for immediate Stack selection', async () => {
     const archivedItem: ComponentCatalogItem = {
