@@ -2,11 +2,11 @@
 
 ## 1. 产品定义
 
-Agent Stack Studio 是一个仅支持 macOS 的本地桌面脚手架。它帮助用户理解并组合 Agent 的实现模块，建立可复现的实验，然后把稳定版本发布到 Multica。
+Agent Stack Studio 是一个仅支持 macOS 的本地桌面工具。它帮助懂一点 Agent 概念但不会写代码的用户选择真实 Harness，像积木一样添加 Prompt、Skill、Markdown Memory、MCP Tool 等能力，在 Studio 中聊天或单次运行，然后把冻结版本发布到 Multica。
 
-Studio 不承担团队协作平台的职责，也不替代现有 Harness。它负责描述、组合、验证和记录。
+Studio 不承担团队协作平台的职责，也不替代现有 Harness。它负责描述、组合、安装计划、验证、版本、运行编排和发布。真实执行优先通过 Harness 原生 Host Driver 完成，不要求所有 Harness 经过 Cordis。
 
-Studio 不绑定外部 Coding Agent。Codex、Claude Code、Cursor、自建 Agent、CI 和人工 Shell 都通过同一 `studio` CLI 使用 Studio Core。Agent Loop、Workflow、Hybrid 与 External Harness 是 Stack 的运行时控制模式，不能与外部 Coding Agent 混同。
+Studio 不绑定外部 Coding Agent。Codex、Claude Code、Cursor、自建 Agent、CI 和人工 Shell 都通过同一 `studio` CLI 使用 Studio Core。旧 Agent Loop、Workflow、Hybrid 与 External Harness Version 继续可读和迁移；M32 起的新产品路径以选定 Harness 的原生能力为准。
 
 ## 2. 用户问题
 
@@ -33,15 +33,15 @@ Studio 不绑定外部 Coding Agent。Codex、Claude Code、Cursor、自建 Agen
 
 ## 4. 信息架构
 
-### 一级导航
+### 一级导航（M32 起）
 
-- Studio 项目：管理与 CLI 共用的 `.agent-stack`。
-- 发现：搜索公开组件来源并生成下载交接。
-- Agent：查看和管理本地 Agent。
-- 组件：查看所有已发现、已安装和自定义组件。
-- 实验：建立控制变量、变量矩阵并比较运行结果。
-- 运行：查看正在运行和已结束的本地任务。
-- 设置：管理本地路径、密钥、连接器和应用偏好。
+- Agent：创建、选择和管理 Agent，并承载默认工作台。
+- 组件：选择 Harness，安装和管理能力组件。
+- 运行：进入聊天、单次运行和本机历史。
+- 发布：校验冻结版本并发布到 Multica。
+- 设置：管理项目、诊断、路径、密钥和应用偏好。
+
+公开来源识别收纳到组件的“添加来源”；Experiment、Workflow、完整 Descriptor、Owner 和 Receipt 收纳到历史/高级区域，不再作为普通用户一级入口。
 
 ### Agent 详情
 
@@ -128,10 +128,10 @@ Workflow 不与当前产品逻辑冲突。它属于执行控制层，而不是�
 
 ## 9. 成功标准
 
-- 新用户能在 15 分钟内导入或创建一个 Agent，并看到模块覆盖图。
-- 用户能明确选择重叠能力的 Owner，系统不会静默覆盖。
-- 用户能锁定至少五项控制变量，只改变两个目标变量并完成实验。
-- Run 记录能够说明代码、配置、模型、数据集和 Adapter 是否发生变化。
+- 新用户能在 10 分钟内创建 Agent、选择受支持 Harness、添加一项能力并完成首次聊天。
+- 用户能理解每项能力在当前 Harness 上是原生、适配、降级还是不可用，系统不会静默覆盖。
+- Agent/CI 能通过非交互 `studio run --json` 获得稳定结果和退出码。
+- Run 记录能够说明 Harness、版本、配置、Prompt、组件和权限是否发生变化。
 - 用户能把一个已验证版本发布到 Multica，且本地草稿不会被自动共享。
 
 ## 10. M7 项目与 CLI 闭环
@@ -291,3 +291,95 @@ Workflow 不与当前产品逻辑冲突。它属于执行控制层，而不是�
 - Preload 必须对搜索、检查、交接、取消、复制与打开 URL 的错误去除 Electron IPC 内部前缀；Renderer 不显示 `Error invoking remote method`。
 - packaged 证据不得依赖 GitHub 可用性：用首次安全空状态和本地输入校验失败证明中文边界、键盘焦点与恢复路径。真实 Provider 行为由 Adapter/Service/Renderer 自动化分层验证。
 - M25 不接收 Token、不新增 Provider、不持久化查询、不下载或执行仓库，也不改变项目、数据库、Runtime 或 CLI 项目协议。
+
+## 29. M26 工作区命令中心与统一状态
+
+- 顶栏必须显示当前 Studio 项目名称、revision 与验证状态；没有项目、项目阻断和外部修改都使用明确文字，不能继续显示固定占位工作区。
+- 顶栏 Run 状态必须来自已保存 Run 事实，区分活动、完成、需关注和无记录；点击状态可进入对应 Run 历史。
+- 全局搜索通过 `⌘K` 或顶栏按钮打开，只检索本机项目、Agent、Component、Run、Experiment 与白名单应用操作，不接受路径、SQL、密钥或网络查询。
+- 搜索结果必须支持完整键盘选择和实体直达；加载、无结果、失败与关闭都保留可访问语义和焦点边界。
+- 工作区摘要是既有项目与本机记录的只读聚合，不进入 SQLite、`.agent-stack`、Agent Stack Package、Runtime 消息或 CLI 项目协议。
+- Agent、Stack、Run、Experiment 与发布状态使用集中化中文词汇；状态始终以文字和图标表达，颜色只作辅助。
+
+## 30. M27 本地验收与可访问入口门禁
+
+- production 源码中的 TODO/FIXME、占位文案、死操作和测试专用成功旁路必须由自动检查拒绝；输入提示与最终包验收控制只能逐项分类。
+- 每个一级导航必须同时存在启用的 GUI 入口、实际 Renderer 分支和命令中心目的地，最终 `.app` 必须逐页打开并确认当前页面。
+- 最终 Renderer 可访问树必须包含 main/navigation landmarks，一级入口和应用级图标按钮必须有名称；可见按钮不得出现空名称。
+- 对比度、可见焦点、减少动态效果与 Dialog 键盘约束必须保留自动化证据；颜色不得成为状态的唯一表达。
+- 门禁只验证既有产品入口，不新增测试模式领域事实，也不放宽 Renderer、IPC、Runtime 或密钥边界。
+
+## 31. M28 最终证据台账
+
+- 97 条本地冻结需求和 39 条分发需求必须由同一解析器生成机器可核验报告，不另建第二份手工状态。
+- Studio Project、Agent、Component/Stack/Workflow、Runtime/Run、Experiment、来源发现、维护/Keychain 和命令中心必须逐条分类八种验收状态。
+- `boundary` 只允许表达只读、单写入或明确职责边界，必须有理由和自动化证据，不能代替缺失实现。
+- 中文截图是本地 Git-ignored 打包产物；公开仓库拒绝除已复核图标外的不透明二进制文件。
+- 最终 strict 验证必须同时检查零未完成需求、包路径、截图存在性、提交和公开 CI 证据。
+
+## 32. M29 稳定性与敏感信息
+
+- 重复的只读请求不得产生重复 IPC/Provider 工作；重复的发布、恢复、Keychain、取消和维护操作不得产生重复副作用或不同 Receipt。
+- 项目迁移、恢复和并发写入必须使用同一排他边界；活跃进程锁不得被误删，死亡进程锁只能在宽限期后回收。
+- GitHub、发布 Adapter、Keychain、安全输入和 Runtime 子进程必须有明确超时、输出上限、取消与强制清理路径。
+- 日志、工作区、Artifact、备份、恢复和导出默认仅当前用户可读写；备份目的地不得位于被复制的数据树内。
+- 凭证 URL、Authorization、Provider token、敏感查询参数和原始子进程输出不得进入项目文件、数据库、Receipt、Artifact、日志、CLI JSON 或 Renderer 错误。
+- 迟到的异步响应不得覆盖用户已切换后的 GUI 状态；文件监听、日志和退出清理异常不得导致主进程未捕获异常。
+
+## 33. M30 Agent-first 项目集成
+
+- Agent 是主入口：在同一页完成组件选择、Stack 排序、Owner 冲突决策、兼容性评估、Workflow 与不可变 Version 冻结，然后进入 Run、Experiment 或 Publish。
+- 组件库只管理当前项目的可用组件、来源、版本、Descriptor、兼容性、更新与移除；导入成功后 Agent 组装器必须立即可选。
+- `.agent-stack` 是 Component Descriptor、Stack、Owner 决策、兼容结论、Workflow 和不可变 Version 的唯一便携事实源。SQLite 只保留本机 Agent 身份/项目版本引用、Run、Experiment、Receipt 和密钥引用。
+- 当前项目在全局顶栏显示并可切换；路径、revision、完整性、备份恢复和导入导出收纳到次级“项目设置”，不再作为一级工作台。
+- 兼容性评估必须显示未检查、静态检查完成但机器证据不足、静态通过、需配置、需 Adapter、运行验证通过和不兼容，并附证据、阻断原因、建议动作、时间与方法。静态检查成功必须立即刷新评估时间与状态；它可以确认“已经检查”，但不得自动提升为静态通过、契约测试或运行验证。Descriptor 编辑不得自动提升证据等级。
+- 旧 SQLite Agent/Component 数据必须通过幂等、可恢复的 v9 迁移转为稳定项目/Version 引用；冲突、缺失、混合引用或较新格式必须显式拒绝，不得静默丢数据。
+
+## 34. M31 兼容处置与 Component 恢复
+
+- 静态导入的 Unknown 必须显示为“机器证据不足”，并精确说明缺少的平台、入口、能力契约、替换性、Adapter 或运行证据；不得暗示等待用户点击确认。
+- 每个 `suggestedAction` 必须是可用按钮、结构化表单或明确外部步骤，覆盖静态复查、契约修正、配置/权限/密钥引用、策略、Owner、契约测试与受信运行验证。
+- Descriptor 表单完整覆盖 `provides`/`requires`/replaceability/activation/platform/configSchema/runtimeAdapter/权限/Keychain 引用和策略；保存经 schema 校验与 revision 冲突保护，取消零写入，全程不编辑 JSON。
+- 策略只是人工处置方向，不得写入契约或运行通过证据。Core 必须忽略人工请求中伪造的 validation/evidence；技术契约改变时回退为 declared，旧证据保留并标记 superseded。
+- 受信运行验证只允许精确白名单内置 Adapter，在全新 Cordis Runtime 子进程真实进行 Adapter 启停、契约、取消与清理检查；未知项目代码不执行，stdout/stderr 不跨边界，仅保存脱敏 Receipt 与 Artifact 哈希。
+- Component 目录支持 active/archived/all 筛选、归档与恢复；恢复后立即可在 Agent Stack 选择。永久删除继续受 Stack、Workflow 和不可变 Version 引用保护。
+- 旧 `unknown`/`user-confirmed` 记录按显式兼容映射读取：保留原始人工证据与备份，不升级技术结论；较新项目格式仍拒绝降级改写。
+
+## 35. M32 产品重置与兼容迁移
+
+- 默认用户是懂基础 Agent 概念但不会写代码的普通用户；普通路径为 Agent→Harness/组件→聊天/运行→冻结→发布。
+- 一级导航收敛为 Agent、组件、运行、发布、设置；公开来源进入添加组件流程，Experiment/Workflow 进入只读历史或高级区域。
+- 产品命令按 `agent/harness/component/chat/run/publish/customize/doctor` 组织。旧命令在替代能力可用前保持行为、JSON envelope、退出码、幂等和 revision 保护，并返回结构化弃用提示。
+- GUI 隐藏 Owner、Receipt、runtimeAdapter 和完整 Descriptor；高级证据可按需展开，历史数据不删除。
+- ADR 0011 正式记录 Native-first 和 Cordis 边界调整；`.agent-stack` 继续是唯一便携事实源。
+
+## 36. M33 真实 Harness、聊天与单次运行
+
+- 至少两个真实 Harness 由版本固定的 Host Driver 接入；优先 Pi 与 DeepSeek Harness，若 Multica 官方发布要求明确指向 OpenClaw，可在记录依据后替换第二个。
+- 支持最小 Prompt、Skill、Markdown Memory 与 MCP Tool 能力路径，并输出逐 Harness native/adapted/degraded/unavailable 结论。
+- GUI 聊天与 CLI `chat` 使用同一会话服务；CLI `run` 必须非交互并支持 `--json`、取消、超时和稳定退出码。
+- fixture 只用于故障测试，不能作为 Harness 成功验收；真实版本、入口、Smoke Test 和输出解析必须有证据。
+
+## 37. M34 Multica 真实发布
+
+- GUI 与 CLI 共用 `validate/publish/status` Connector，发布同一冻结 Version、payload 和内容哈希。
+- 重试使用稳定幂等键，不重复创建远端资源；状态只由真实远端响应和保存 Receipt 得出。
+- payload 排除本地路径、密钥、聊天、Run 日志和 Artifact。认证/API 未确认时只能完成安全边界并明确阻断，不能伪造成功。
+
+## 38. M35 开源组件与 Coding Agent 交接
+
+- 已知开源项目按版本固定、可审计的安装方案接入；GitHub URL 和本地目录只做静态识别，不自动执行未知代码。
+- 未知项目生成完整 Markdown 定制任务，包含来源、目标 Harness、能力映射、限制、文件计划、测试和验收，供任意 Coding Agent 使用。
+- 安装/更新前保存项目与目标配置快照；失败必须恢复或保留明确可恢复状态。
+
+## 39. M36 Harness 与组件覆盖
+
+- 增加第三个真实 Harness 和约 10–15 个真实验证的组件安装方案；至少一个组件在两个 Harness 上通过真实 Smoke Test。
+- 能力矩阵明确表达降级和不可用，不建设推荐系统或公共市场。
+- GUI/CLI/Core 同时支持检测更新、受控更新、Smoke Test、卸载和快照恢复。
+
+## 40. M37 分发与迁移收束
+
+- 完成 macOS 签名/公证可验证边界、升级迁移、doctor、备份恢复和 App 内 CLI 可发现路径。
+- 旧 Experiment/Workflow/Runtime Profile 能力只读或显式迁移，不能继续出现在普通创建路径。
+- 在无 Node/npm/开发仓库的受支持 Mac 上，从最终 `.app` 与包内 CLI 完成 GUI+CLI+Multica 的真实闭环；外部凭证或证书缺失必须列为精确阻断。

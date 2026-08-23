@@ -22,7 +22,7 @@
     "secretPolicy": "reject-local-paths-and-exclude-keychain-local-data"
   },
   "database": {
-    "currentSchemaVersion": 8,
+    "currentSchemaVersion": 9,
     "responsibility": "local-index-run-experiment-receipt-artifact-reference"
   },
   "contracts": {

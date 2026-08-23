@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { compatibilityRemediationTasksSchema } from '../shared/remediation'
+import { compatibilityAssessmentSchema } from '../shared/compatibility-assessment'
 import { executionModeSchema } from '../shared/agent'
-import { capabilityIdSchema, componentDescriptorSchema } from '../shared/component'
+import {
+  capabilityIdSchema,
+  componentAuditEntrySchema,
+  componentDescriptorSchema,
+} from '../shared/component'
+import { agentProfileSchema, defaultAgentProfile } from '../shared/agent-profile'
 
 export const PROJECT_FILE_NAME = '.agent-stack' as const
 export const PROJECT_FORMAT_VERSION = 2 as const
@@ -50,6 +56,7 @@ export const projectComponentSchema = z
     archivedAt: z.iso.datetime().nullable(),
     importedAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
+    auditTrail: z.array(componentAuditEntrySchema).max(500).optional(),
   })
   .strict()
 
@@ -212,6 +219,7 @@ export const projectWorkflowSchema = z
 export const projectVersionSnapshotSchema = z
   .object({
     project: z.object({ id: z.uuid(), name: z.string().min(1).max(100) }).strict(),
+    profile: agentProfileSchema.optional(),
     stack: projectStackSchema,
     components: z.array(projectComponentSchema),
     workflows: z.array(projectWorkflowSchema).optional(),
@@ -237,6 +245,7 @@ export const studioProjectSchema = z
     name: z.string().trim().min(1).max(100),
     description: z.string().max(500),
     revision: z.number().int().nonnegative(),
+    profile: agentProfileSchema.default(defaultAgentProfile),
     components: z.array(projectComponentSchema),
     stack: projectStackSchema,
     workflows: z.array(projectWorkflowSchema),
@@ -402,6 +411,7 @@ export const projectValidationSchema = z
     status: z.enum(['ready', 'blocked']),
     revision: z.number().int().nonnegative(),
     issues: z.array(validationIssueSchema),
+    assessments: z.array(compatibilityAssessmentSchema).optional(),
     remediationTasks: compatibilityRemediationTasksSchema,
     runtimePlanHash: z
       .string()

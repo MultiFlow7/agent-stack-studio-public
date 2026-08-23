@@ -85,6 +85,35 @@ describe('ProjectStore', () => {
     expect((await core.inspectProject(root)).project.revision).toBe(1)
   })
 
+  it('recovers a stale lock left by a terminated process without removing a live lock', async () => {
+    const root = await temporaryProject()
+    const core = new StudioCore()
+    await core.initProject(root, { name: 'Stale lock recovery' })
+    const lockPath = path.join(root, '.agent-stack.lock')
+    await writeFile(
+      lockPath,
+      `${JSON.stringify({ pid: 2_147_483_647, createdAt: '2020-01-01T00:00:00.000Z' })}\n`,
+      'utf8',
+    )
+
+    await expect(
+      core.importComponent(root, path.resolve('src/test/fixtures/m7/harness-x'), {
+        expectedRevision: 0,
+      }),
+    ).resolves.toMatchObject({ project: { revision: 1 } })
+
+    await writeFile(
+      lockPath,
+      `${JSON.stringify({ pid: process.pid, createdAt: '2020-01-01T00:00:00.000Z' })}\n`,
+      'utf8',
+    )
+    await expect(
+      core.importComponent(root, path.resolve('src/test/fixtures/m7/research-y'), {
+        expectedRevision: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  })
+
   it('migrates v1 to v2, recovers a failed migration, and refuses forward-format downgrade reads', async () => {
     const root = await temporaryProject()
     const core = new StudioCore()

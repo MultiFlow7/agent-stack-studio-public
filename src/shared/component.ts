@@ -46,6 +46,80 @@ export const validationStatusSchema = z.enum([
   'failed',
 ])
 
+export const componentPermissionScopeSchema = z.enum([
+  'network',
+  'filesystem-read',
+  'filesystem-write',
+  'subprocess',
+  'keychain',
+])
+
+export const componentPermissionSchema = z
+  .object({
+    scope: componentPermissionScopeSchema,
+    required: z.boolean(),
+    reason: z.string().trim().min(1).max(300),
+  })
+  .strict()
+
+export const componentSecretReferenceSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .regex(/^[A-Z][A-Z0-9_]{1,79}$/, '密钥引用名必须是大写标识符。'),
+    purpose: z.string().trim().min(1).max(300),
+    required: z.boolean(),
+  })
+  .strict()
+
+export const componentAuditEntrySchema = z
+  .object({
+    id: z.uuid(),
+    action: z.enum([
+      'imported',
+      'static-inspected',
+      'descriptor-updated',
+      'strategy-selected',
+      'contract-tested',
+      'runtime-validated',
+      'archived',
+      'restored',
+    ]),
+    actor: z.enum(['system', 'user']),
+    summary: z.string().trim().min(1).max(500),
+    recordedAt: z.iso.datetime(),
+  })
+  .strict()
+
+function safeDescriptorReference(value: string): boolean {
+  if (/[\0\r\n]/.test(value)) return false
+  if (
+    /\b(?:authorization|credential|password|passwd|private[-_]?key|secret|token|api[-_]?key)\s*[:=]\s*\S+/i.test(
+      value,
+    )
+  )
+    return false
+  try {
+    const url = new URL(value)
+    if (url.username || url.password) return false
+    return ![...url.searchParams.keys()].some((key) =>
+      /(?:^|[-_])(?:authorization|credential|password|secret|token|api[-_]?key)(?:$|[-_])/i.test(
+        key,
+      ),
+    )
+  } catch {
+    return true
+  }
+}
+
+const descriptorReferenceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2_000)
+  .refine(safeDescriptorReference, '引用不得包含凭证、密钥查询参数或换行符。')
+
 export const componentProviderSchema = z
   .object({
     capability: capabilityIdSchema,
@@ -79,27 +153,56 @@ export const componentDescriptorSchema = z
     source: z
       .object({
         kind: z.enum(['built-in', 'local-package', 'static-import', 'generated-adapter']),
-        location: z.string().trim().min(1).max(2_000),
+        location: descriptorReferenceSchema,
         license: z.string().trim().min(1).max(120),
       })
       .strict(),
     platforms: z.array(z.enum(['darwin-arm64', 'darwin-x64'])).min(1),
     provides: z.array(componentProviderSchema).min(1),
     requires: z.array(componentRequirementSchema),
-    configSchema: z.string().trim().min(1).nullable(),
-    runtimeAdapter: z.string().trim().min(1).nullable(),
+    configSchema: descriptorReferenceSchema.nullable(),
+    runtimeAdapter: descriptorReferenceSchema.nullable(),
+    permissions: z.array(componentPermissionSchema).max(20).optional(),
+    secretReferences: z.array(componentSecretReferenceSchema).max(20).optional(),
     compatibility: z
       .object({
         level: compatibilityLevelSchema,
         validation: validationStatusSchema,
         detail: z.string().trim().min(1).max(500),
+        strategyRationale: z.string().trim().min(1).max(500).optional(),
+        strategySelectedAt: z.iso.datetime().optional(),
       })
       .strict(),
     evidence: z.array(
       z
         .object({
-          kind: z.enum(['manifest', 'contract-test', 'runtime-check', 'user-confirmation']),
+          kind: z.enum([
+            'manifest',
+            'static-check',
+            'contract-test',
+            'runtime-check',
+            'user-confirmation',
+          ]),
           detail: z.string().trim().min(1).max(500),
+          status: z.enum(['passed', 'failed', 'human-decision']).optional(),
+          method: z
+            .enum([
+              'safe-static-inspection-v2',
+              'descriptor-contract-test-v1',
+              'trusted-runtime-validation-v1',
+              'legacy-user-confirmation',
+            ])
+            .optional(),
+          recordedAt: z.iso.datetime().optional(),
+          supersededAt: z.iso.datetime().optional(),
+          artifact: z
+            .object({
+              name: z.string().trim().min(1).max(120),
+              contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+            })
+            .strict()
+            .optional(),
+          receiptId: z.uuid().optional(),
         })
         .strict(),
     ),
@@ -124,6 +227,22 @@ export const componentDescriptorSchema = z
         message: 'Adapter 必须声明 Runtime Adapter 引用。',
       })
     }
+    const permissionScopes = descriptor.permissions?.map(({ scope }) => scope) ?? []
+    if (new Set(permissionScopes).size !== permissionScopes.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['permissions'],
+        message: '每个权限范围只能声明一次。',
+      })
+    }
+    const secretNames = descriptor.secretReferences?.map(({ name }) => name) ?? []
+    if (new Set(secretNames).size !== secretNames.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['secretReferences'],
+        message: '每个密钥引用名只能声明一次。',
+      })
+    }
   })
 
 export const componentRecordSchema = z
@@ -132,6 +251,7 @@ export const componentRecordSchema = z
     descriptor: componentDescriptorSchema,
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
+    archivedAt: z.iso.datetime().nullable().optional(),
   })
   .strict()
 

@@ -65,7 +65,7 @@ Descriptor 是声明和证据，不是可执行权限。导入时先解析 Descr
 | 需要 Adapter | 接口不同，但可通过适配层连接 |
 | 需要 Fork | 必须修改上游或维护补丁 |
 | 锁定 | 当前实现不可独立替换 |
-| 未知 | 扫描证据不足，需要用户确认或验证 |
+| 未知 | 机器证据不足；需静态复查、契约修正或技术验证，不是等待用户确认 |
 
 ## 5. 能力 Owner
 
@@ -121,7 +121,7 @@ M2 使用 Component Contract v1 保存不可变的 Descriptor 版本，并在 SQ
 
 ## 9. M7 静态证据等级
 
-项目文件对组件识别结论使用五级证据：`declared`、`detected`、`user-confirmed`、`contract-tested`、`runtime-verified`。安全静态导入最多产生 declared 或 detected；用户更正 Descriptor 后为 user-confirmed。只有真实契约测试和受信最小运行验证才能继续提升，不能由文案或文件名推断。
+项目文件对组件识别结论使用五级证据：`declared`、`detected`、`user-confirmed`、`contract-tested`、`runtime-verified`。安全静态导入最多产生 declared 或 detected；编辑 Descriptor 只修正结构化事实，必须保留原证据等级。`user-confirmed` 只能由用户对信任、许可、Owner 或业务接受的显式决策产生并留存审计。只有真实契约测试和受信最小运行验证才能继续提升，不能由文案或文件名推断。
 
 Component 的可移植定义由 `.agent-stack` 保存。SQLite 只保留本机项目索引；历史 Version 引用会阻止永久删除，允许归档并保持旧快照可读。
 
@@ -138,3 +138,25 @@ Component 的可移植定义由 `.agent-stack` 保存。SQLite 只保留本机�
 需要 Adapter/Fork 且未通过最小运行验证时，Studio 根据 Descriptor 派生三段处置链：工作产物、契约测试、最小运行验证。每段包含确定 ID、状态和验收条件；`contract-tested` 只证明前两段已有证据，不能把 Runtime Plan 标为就绪。
 
 处置链不是任务管理后台，也不保存生成代码。它不进入 Component Descriptor、项目文件、SQLite 或 Version；重新验证当前事实即可重建。任何实际生成、修复或执行 Adapter/Fork 都仍需用户在明确受信工作区完成。
+
+## 12. M30 兼容性评估
+
+Studio Core 对当前 Stack 的每个 Component 输出 `CompatibilityAssessment`：用户状态为未检查、静态检查完成但机器证据不足、静态通过、需配置、需 Adapter、运行验证通过或不兼容。“未检查”只用于没有静态检查记录的组件；只要安全扫描已完成，即使仍缺能力边界、处置策略、契约测试或受信运行证据，也必须显示“静态检查完成，机器证据不足”，不得让用户误以为按钮没有生效。结论带稳定证据、阻断原因、`suggestedActions`、验证时间和验证方法；GUI 与 CLI 必须显示同一 Core 结果。
+
+Adapter/Fork 方向在缺少运行入口时只显示“准备并注册受信 Adapter”的明确外部步骤，不得提供必然失败的契约测试按钮。契约测试完成后，只有 `studio://` 精确白名单入口才能显示受信运行验证按钮；未知路径继续显示注册与审查步骤，且不会执行代码。
+
+项目的 `components`、`stack`、`owners`、`workflows` 和 `versions` 都只在 `.agent-stack` 中读写。SQLite 中的历史 Component/Stack/Owner/Version 只作一次性迁移输入；迁移完成后本机 Agent 只保留对项目和不可变项目 Version 的稳定引用。
+
+## 13. M31 可执行兼容处置
+
+兼容处置按下列顺序形成证据链：安全重新静态检查→修正 provides/requires、replaceability 和 activation→声明 configSchema、最小权限与 Keychain 引用名→选择 Native/Configuration/Adapter/Fork/Incompatible 处置方向→解决 Owner 冲突→确定性契约测试→受信最小运行验证。
+
+策略是人工审计决定，不改变 validation。Descriptor 人工写入不能改写 evidence；技术契约变更会将当前契约/运行证据标记 superseded 并回到 declared。只有 Studio 确定性测试可产生 contract-test，且只有白名单内置 Adapter 在全新 Runtime 子进程真实启停后才产生 runtime-check。
+
+Pi + MRAgent 类静态扫描的默认结论不再诱导伪造 Native：Pi 应明确为 `execution-controller` Owner，为其选择可审查的白名单 Harness Adapter 并逐级测试；MRAgent 只在 Manifest/README/契约证据支持时修正为 `memory`/`state-store`，未进入受信 Runtime 前最多停留在 contract-tested。
+
+## 14. M32 Harness 与 Component 分层
+
+Harness 是 Agent 的主要执行宿主，不再仅靠 `execution-controller` Owner 暗示。M32 迁移读取旧 Descriptor 时仍可用该能力识别候选 Harness，但新领域投影必须给出明确 Harness 身份、Host Driver、原生版本、安装状态和能力矩阵。
+
+普通 Component 是安装到 Harness 的能力积木。其兼容结论按 Harness 分别计算为 `native`、`adapted`、`degraded` 或 `unavailable`；同一组件可以在 Pi 原生、在另一个 Harness 降级，不能再用一个全局 compatibility level 覆盖事实。旧 compatibility/Owner/runtimeAdapter 字段继续用于迁移和工程证据，不作为普通用户默认操作。

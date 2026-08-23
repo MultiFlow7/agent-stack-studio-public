@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { StudioApi } from '../../../shared/ipc'
 import {
-  localContractTestTargetId,
+  multicaCliTargetId,
   publishPackageSchema,
   publishReceiptSchema,
   publishTargetSchema,
@@ -12,14 +12,14 @@ import {
 import { createRunFixture } from '../../../test/run-fixture'
 import { PublishPanel } from './PublishPanel'
 
-const localTarget = publishTargetSchema.parse({
-  id: localContractTestTargetId,
+const multicaTarget = publishTargetSchema.parse({
+  id: multicaCliTargetId,
   connector: 'multica',
-  transport: 'contract-test',
-  label: '本地 Contract Test Target',
-  description: '不发起网络请求。',
+  transport: 'cli',
+  label: 'Multica',
+  description: '真实发布。',
   availability: 'ready',
-  externalSideEffect: false,
+  externalSideEffect: true,
 })
 
 function fixtures(status: 'ready' | 'blocked' = 'ready') {
@@ -38,6 +38,7 @@ function fixtures(status: 'ready' | 'blocked' = 'ready') {
       description: version.snapshot.agent.description,
       executionMode: version.snapshot.agent.executionMode,
     },
+    harness: { id: 'openclaw', contractId: 'studio.harness.openclaw', version: '2026.1.30' },
     stack: {
       revision: version.snapshot.stack.revision,
       components: [
@@ -60,13 +61,14 @@ function fixtures(status: 'ready' | 'blocked' = 'ready') {
       'local-paths',
       'keychain-secrets',
       'experiment-data',
+      'chat-history',
       'run-logs',
       'artifacts',
     ],
     contentHash: 'b'.repeat(64),
   })
   const preview: PublishPreview = {
-    target: localTarget,
+    target: multicaTarget,
     package: publishPackage,
     validation: {
       status,
@@ -76,8 +78,8 @@ function fixtures(status: 'ready' | 'blocked' = 'ready') {
               {
                 field: 'target',
                 severity: 'warning',
-                code: 'LOCAL_TEST_ONLY',
-                message: '当前目标不发起网络请求。',
+                code: 'CAPABILITY_DEGRADED',
+                message: '工具权限由 Runtime 管理。',
               },
             ]
           : [
@@ -94,7 +96,7 @@ function fixtures(status: 'ready' | 'blocked' = 'ready') {
   }
   const receipt = publishReceiptSchema.parse({
     id: '50000000-0000-4000-8000-000000000001',
-    targetId: localContractTestTargetId,
+    targetId: multicaCliTargetId,
     agentId: version.agentId,
     agentVersionId: version.id,
     packageHash: publishPackage.contentHash,
@@ -103,7 +105,7 @@ function fixtures(status: 'ready' | 'blocked' = 'ready') {
     status: 'succeeded',
     remoteAgentId: 'test-agent-1',
     remoteVersionId: 'test-version-1',
-    response: { message: '契约通过。', publishedFields: ['agent'], testOnly: true },
+    response: { message: '远端确认。', publishedFields: ['agent'], testOnly: false },
     failure: null,
     createdAt: '2026-08-19T12:01:00.000Z',
     completedAt: '2026-08-19T12:01:01.000Z',
@@ -118,7 +120,7 @@ function installApi(preview: PublishPreview, receipt = fixtures().receipt) {
     .mockResolvedValueOnce({ mapping: null, receipts: [] })
     .mockResolvedValue({
       mapping: {
-        targetId: localContractTestTargetId,
+        targetId: multicaCliTargetId,
         agentId: receipt.agentId,
         remoteAgentId: receipt.remoteAgentId!,
         createdAt: receipt.createdAt,
@@ -128,10 +130,31 @@ function installApi(preview: PublishPreview, receipt = fixtures().receipt) {
     })
   window.studio = {
     publishing: {
-      targets: vi.fn(() => Promise.resolve([localTarget])),
+      runtimes: vi.fn(() =>
+        Promise.resolve([
+          {
+            id: '70000000-0000-4000-8000-000000000001',
+            label: 'OpenClaw on Mac',
+            provider: 'openclaw',
+            status: 'online',
+          },
+        ]),
+      ),
+      targets: vi.fn(() => Promise.resolve([multicaTarget])),
       preview: vi.fn(() => Promise.resolve(preview)),
       publish,
       history,
+      status: vi.fn(() =>
+        Promise.resolve({
+          state: 'not-published' as const,
+          remoteAgentId: null,
+          localContentHash: preview.package.contentHash,
+          remoteContentHash: null,
+          displayName: null,
+          checkedAt: '2026-08-19T12:00:00.000Z',
+          message: '尚未发布。',
+        }),
+      ),
     },
   } as unknown as StudioApi
   return { publish }
@@ -145,20 +168,21 @@ describe('PublishPanel', () => {
     render(<PublishPanel agentId={version.agentId} version={version} />)
 
     expect(await screen.findByText('发布预检通过')).toBeVisible()
-    const publishButton = screen.getByRole('button', { name: '发布此版本到本地测试目标' })
+    const publishButton = screen.getByRole('button', { name: '发布此版本到 Multica' })
     expect(publishButton).toBeDisabled()
     await user.click(screen.getByRole('checkbox', { name: /我已检查发布范围/ }))
     publishButton.focus()
     await user.keyboard('{Enter}')
 
     expect(publish).toHaveBeenCalledWith({
-      targetId: localContractTestTargetId,
+      targetId: multicaCliTargetId,
       agentId: version.agentId,
       agentVersionId: version.id,
+      runtimeId: '70000000-0000-4000-8000-000000000001',
       confirmed: true,
     })
-    expect(await screen.findByText('发布包已通过本地 Connector Contract Test。')).toBeVisible()
-    expect(await screen.findByText('已发布')).toBeVisible()
+    expect(await screen.findByText('Multica 已确认接收该冻结版本。')).toBeVisible()
+    expect(await screen.findByText('已成功')).toBeVisible()
   })
 
   it('keeps the publish action disabled when verification is blocked', async () => {

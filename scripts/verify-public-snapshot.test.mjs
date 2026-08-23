@@ -31,4 +31,12 @@ describe('public snapshot privacy verifier', () => {
       { path: '.env.production', category: 'personal-user-path' },
     ])
   })
+
+  it('allows only the reviewed application icons as opaque binary content', () => {
+    const binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0])
+    expect(inspectPublicSnapshotFile('build/icon.png', binary)).toEqual([])
+    expect(inspectPublicSnapshotFile('artifacts/local-screen.png', binary)).toEqual([
+      { path: 'artifacts/local-screen.png', category: 'unapproved-binary' },
+    ])
+  })
 })

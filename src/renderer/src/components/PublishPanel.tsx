@@ -7,14 +7,17 @@ import {
   ShieldCheck,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentVersion } from '../../../shared/agent-detail'
 import {
-  localContractTestTargetId,
+  multicaCliTargetId,
+  type MulticaRuntime,
   type PublishHistory,
   type PublishPreview,
+  type PublishRemoteStatus,
   type PublishTarget,
 } from '../../../shared/publish'
+import { publishStatusLabels } from '../copy'
 
 interface PublishPanelProps {
   agentId: string
@@ -23,44 +26,75 @@ interface PublishPanelProps {
 
 export function PublishPanel({ agentId, version }: PublishPanelProps) {
   const [targets, setTargets] = useState<PublishTarget[]>([])
-  const [selectedTargetId, setSelectedTargetId] =
-    useState<PublishTarget['id']>(localContractTestTargetId)
+  const [selectedTargetId, setSelectedTargetId] = useState<PublishTarget['id']>(multicaCliTargetId)
+  const [runtimes, setRuntimes] = useState<MulticaRuntime[]>([])
+  const [runtimeId, setRuntimeId] = useState<string>()
   const [preview, setPreview] = useState<PublishPreview>()
   const [history, setHistory] = useState<PublishHistory>()
+  const [remoteStatus, setRemoteStatus] = useState<PublishRemoteStatus>()
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string>()
   const [confirmed, setConfirmed] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [feedback, setFeedback] = useState<string>()
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setStatus('loading')
     setError(undefined)
     try {
-      const availableTargets = await window.studio.publishing.targets()
+      const [availableTargets, availableRuntimes] = await Promise.all([
+        window.studio.publishing.targets(),
+        window.studio.publishing.runtimes().catch(() => []),
+      ])
+      if (request !== loadRequest.current) return
       setTargets(availableTargets)
+      setRuntimes(availableRuntimes)
       if (!version) {
         setPreview(undefined)
         setHistory(undefined)
+        setRemoteStatus(undefined)
         setStatus('ready')
         return
       }
-      const [nextPreview, nextHistory] = await Promise.all([
+      const preliminary = await window.studio.publishing.preview({
+        targetId: selectedTargetId,
+        agentId,
+        agentVersionId: version.id,
+        ...(runtimeId ? { runtimeId } : {}),
+      })
+      const selectedRuntimeId =
+        runtimeId ??
+        availableRuntimes.find(
+          ({ provider, status }) =>
+            provider === preliminary.package.harness?.id && status === 'online',
+        )?.id
+      if (selectedRuntimeId !== runtimeId) setRuntimeId(selectedRuntimeId)
+      const publishInput = {
+        targetId: selectedTargetId,
+        agentId,
+        agentVersionId: version.id,
+        ...(selectedRuntimeId ? { runtimeId: selectedRuntimeId } : {}),
+      }
+      const [nextPreview, nextHistory, nextRemoteStatus] = await Promise.all([
         window.studio.publishing.preview({
-          targetId: selectedTargetId,
-          agentId,
-          agentVersionId: version.id,
+          ...publishInput,
         }),
         window.studio.publishing.history(selectedTargetId, agentId),
+        window.studio.publishing.status(publishInput),
       ])
+      if (request !== loadRequest.current) return
       setPreview(nextPreview)
       setHistory(nextHistory)
+      setRemoteStatus(nextRemoteStatus)
       setStatus('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法载入发布预检。')
       setStatus('error')
     }
-  }, [agentId, selectedTargetId, version])
+  }, [agentId, runtimeId, selectedTargetId, version])
 
   useEffect(() => {
     void load()
@@ -76,26 +110,33 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
         targetId: selectedTargetId,
         agentId,
         agentVersionId: version.id,
+        ...(runtimeId ? { runtimeId } : {}),
         confirmed: true,
       })
       setFeedback(
         result.receipt.status === 'succeeded'
           ? result.reused
             ? '相同发布包已存在，已复用原 Receipt，未重复创建远端身份。'
-            : '发布包已通过本地 Connector Contract Test。'
+            : 'Multica 已确认接收该冻结版本。'
           : `发布失败：${result.receipt.failure?.message ?? '未知错误'}`,
       )
       setConfirmed(false)
-      const [nextPreview, nextHistory] = await Promise.all([
+      const publishInput = {
+        targetId: selectedTargetId,
+        agentId,
+        agentVersionId: version.id,
+        ...(runtimeId ? { runtimeId } : {}),
+      }
+      const [nextPreview, nextHistory, nextRemoteStatus] = await Promise.all([
         window.studio.publishing.preview({
-          targetId: selectedTargetId,
-          agentId,
-          agentVersionId: version.id,
+          ...publishInput,
         }),
         window.studio.publishing.history(selectedTargetId, agentId),
+        window.studio.publishing.status(publishInput),
       ])
       setPreview(nextPreview)
       setHistory(nextHistory)
+      setRemoteStatus(nextRemoteStatus)
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : '无法完成发布。')
     } finally {
@@ -175,6 +216,26 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
         ))}
       </fieldset>
 
+      <label className="field publish-runtime-field">
+        <span>Multica Runtime</span>
+        <select
+          disabled={publishing || runtimes.length === 0}
+          onChange={(event) => {
+            setRuntimeId(event.target.value || undefined)
+            setConfirmed(false)
+          }}
+          value={runtimeId ?? ''}
+        >
+          <option value="">{runtimes.length ? '选择 Runtime' : '尚未发现已登录 Runtime'}</option>
+          {runtimes.map((runtime) => (
+            <option key={runtime.id} value={runtime.id}>
+              {runtime.label} · {runtime.provider} · {runtime.status}
+            </option>
+          ))}
+        </select>
+        <small>Studio 调用官方 Multica CLI，并复用其登录；不会读取或保存 Token。</small>
+      </label>
+
       <section
         className={`publish-validation publish-validation--${preview?.validation.status}`}
         aria-live="polite"
@@ -223,8 +284,8 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
             <div>
               <dt>包含</dt>
               <dd>
-                Agent 名称与描述、版本溯源、{preview.package.stack.components.length} 个组件、能力
-                Owner、Runtime 要求
+                Agent 名称与描述、版本溯源、{preview.package.stack.components.length}{' '}
+                个组件、能力映射与 Runtime 要求
               </dd>
             </div>
             <div>
@@ -233,7 +294,7 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
             </div>
             <div>
               <dt>明确排除</dt>
-              <dd>本地路径、Keychain 密钥、实验数据、Run 日志和 Artifact</dd>
+              <dd>本地路径、Keychain 密钥、聊天、实验数据、Run 日志和 Artifact</dd>
             </div>
           </dl>
           <div className="publish-confirmation">
@@ -246,7 +307,7 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
               />
               <span>
                 <strong>我已检查发布范围</strong>
-                <small>当前操作仅写入本地 Contract Test Receipt，不连接 Multica。</small>
+                <small>当前操作会在 Multica 创建或更新私有 Agent，并保存本机 Receipt。</small>
               </span>
             </label>
             <button
@@ -256,7 +317,7 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
               type="button"
             >
               <PaperPlaneTilt aria-hidden="true" size={16} weight="fill" />
-              {publishing ? '正在发布…' : '发布此版本到本地测试目标'}
+              {publishing ? '正在发布…' : '发布此版本到 Multica'}
             </button>
           </div>
         </section>
@@ -272,6 +333,14 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
           <CheckCircle aria-hidden="true" size={18} weight="fill" />
           {feedback}
         </div>
+      ) : null}
+
+      {remoteStatus ? (
+        <section className={`publish-remote-status publish-remote-status--${remoteStatus.state}`}>
+          <strong>真实远端状态：{remoteStatus.state}</strong>
+          <span>{remoteStatus.message}</span>
+          {remoteStatus.remoteAgentId ? <code>{remoteStatus.remoteAgentId}</code> : null}
+        </section>
       ) : null}
 
       <section className="publish-history">
@@ -302,11 +371,7 @@ export function PublishPanel({ agentId, version }: PublishPanelProps) {
                     <td>#{receipt.attempt}</td>
                     <td>
                       <span className={`receipt-status receipt-status--${receipt.status}`}>
-                        {receipt.status === 'succeeded'
-                          ? '已发布'
-                          : receipt.status === 'failed'
-                            ? '失败，可重试'
-                            : '处理中'}
+                        {publishStatusLabels[receipt.status]}
                       </span>
                       {receipt.failure ? <small>{receipt.failure.message}</small> : null}
                     </td>

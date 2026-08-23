@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import path from 'node:path'
 import Database from 'better-sqlite3'
 import {
   agentListSchema,
@@ -18,11 +19,13 @@ import {
   type AgentDetail,
   type AgentLocation,
   type AgentVersion,
+  type MaterializedAgentVersion,
   type StackDraft,
 } from '../../shared/agent-detail'
 import { AppError } from '../../shared/errors'
 import { secretReferenceSchema, type SecretReference } from '../../shared/secret-reference'
 import { migrate } from './migrations'
+import type { ProjectVersion, StudioProject } from '../../core/project-model'
 
 interface AgentRow {
   id: string
@@ -68,6 +71,22 @@ interface SecretReferenceRow {
 interface CreateOptions {
   id?: string
   location?: AgentLocation
+}
+
+export interface AgentProjectLink {
+  agentId: string
+  projectId: string
+  projectPath: string
+  linkedAt: string
+  updatedAt: string
+}
+
+interface AgentProjectLinkRow {
+  agent_id: string
+  project_id: string
+  project_path: string
+  linked_at: string
+  updated_at: string
 }
 
 function mapAgent(row: AgentRow): Agent {
@@ -174,6 +193,286 @@ export class AgentRepository {
     }
   }
 
+  ensureProjectAgent(
+    project: StudioProject,
+    projectPath: string,
+    preferredAgentId?: string,
+  ): AgentProjectLink {
+    const existing = this.findProjectLinkByProject(project.id)
+    const timestamp = new Date().toISOString()
+    if (existing) {
+      if (existing.projectPath !== projectPath) {
+        throw new AppError('VALIDATION_FAILED', '该项目 ID 已绑定到另一本机路径，未自动覆盖。')
+      }
+      const detail = this.getDetail(existing.agentId)
+      const draftRevision = project.revision + 1
+      if (
+        detail.agent.name === project.name &&
+        detail.agent.description === project.description &&
+        detail.agent.executionMode === project.stack.executionMode &&
+        detail.draft.executionMode === project.stack.executionMode &&
+        detail.draft.revision === draftRevision
+      ) {
+        return existing
+      }
+      this.#database.exec('BEGIN IMMEDIATE')
+      try {
+        this.#database
+          .prepare(
+            `UPDATE agents SET name = ?, description = ?, execution_mode = ?, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(
+            project.name,
+            project.description,
+            project.stack.executionMode,
+            timestamp,
+            existing.agentId,
+          )
+        this.#database
+          .prepare(
+            `UPDATE agent_stack_drafts SET execution_mode = ?, revision = ?, updated_at = ?
+             WHERE agent_id = ?`,
+          )
+          .run(project.stack.executionMode, draftRevision, timestamp, existing.agentId)
+        this.#database
+          .prepare('UPDATE agent_project_links SET updated_at = ? WHERE agent_id = ?')
+          .run(timestamp, existing.agentId)
+        this.#database.exec('COMMIT')
+        return { ...existing, updatedAt: timestamp }
+      } catch (error) {
+        this.#database.exec('ROLLBACK')
+        throw new AppError('PERSISTENCE_FAILED', '无法刷新 Agent 的本机项目索引。', {
+          cause: error,
+        })
+      }
+    }
+
+    const pathConflict = this.#database
+      .prepare('SELECT project_id FROM agent_project_links WHERE project_path = ?')
+      .get(projectPath) as { project_id: string } | undefined
+    if (pathConflict) {
+      throw new AppError(
+        'VALIDATION_FAILED',
+        '该本机路径已绑定不同的项目 ID，请先审核项目备份与冲突。',
+      )
+    }
+
+    const agentId = preferredAgentId ?? randomUUID()
+    this.#database.exec('BEGIN IMMEDIATE')
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO agents
+            (id, name, description, execution_mode, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          agentId,
+          project.name,
+          project.description,
+          project.stack.executionMode,
+          timestamp,
+          timestamp,
+        )
+      this.#database
+        .prepare(
+          `INSERT INTO agent_stack_drafts
+            (agent_id, execution_mode, revision, updated_at) VALUES (?, ?, ?, ?)`,
+        )
+        .run(agentId, project.stack.executionMode, project.revision + 1, timestamp)
+      this.#database
+        .prepare(
+          `INSERT INTO agent_locations
+            (agent_id, workspace_path, source_kind, source_path)
+           VALUES (?, ?, 'local-import', ?)`,
+        )
+        .run(agentId, projectPath, projectPath)
+      this.#database
+        .prepare(
+          `INSERT INTO agent_project_links
+            (agent_id, project_id, project_path, linked_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(agentId, project.id, projectPath, timestamp, timestamp)
+      this.#database.exec('COMMIT')
+      return {
+        agentId,
+        projectId: project.id,
+        projectPath,
+        linkedAt: timestamp,
+        updatedAt: timestamp,
+      }
+    } catch (error) {
+      this.#database.exec('ROLLBACK')
+      throw new AppError('PERSISTENCE_FAILED', '无法建立 Agent 与项目的本机引用。', {
+        cause: error,
+      })
+    }
+  }
+
+  projectLink(agentId: string): AgentProjectLink | null {
+    const row = this.#database
+      .prepare(
+        `SELECT agent_id, project_id, project_path, linked_at, updated_at
+         FROM agent_project_links WHERE agent_id = ?`,
+      )
+      .get(agentId) as AgentProjectLinkRow | undefined
+    return row ? this.#mapProjectLink(row) : null
+  }
+
+  findProjectLinkByProject(projectId: string): AgentProjectLink | null {
+    const row = this.#database
+      .prepare(
+        `SELECT agent_id, project_id, project_path, linked_at, updated_at
+         FROM agent_project_links WHERE project_id = ?`,
+      )
+      .get(projectId) as AgentProjectLinkRow | undefined
+    return row ? this.#mapProjectLink(row) : null
+  }
+
+  listUnlinkedAgentIds(): string[] {
+    return this.#database
+      .prepare(
+        `SELECT a.id FROM agents a
+         LEFT JOIN agent_project_links l ON l.agent_id = a.id
+         WHERE l.agent_id IS NULL ORDER BY a.created_at, a.id`,
+      )
+      .pluck()
+      .all() as string[]
+  }
+
+  allAgentsLinked(): boolean {
+    const row = this.#database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM agents a
+         LEFT JOIN agent_project_links l ON l.agent_id = a.id
+         WHERE l.agent_id IS NULL`,
+      )
+      .get() as { count: number }
+    return row.count === 0
+  }
+
+  finalizeLegacyProjectMigration(project: StudioProject, projectPath: string): AgentProjectLink {
+    const existing = this.projectLink(project.id)
+    if (existing) {
+      if (existing.projectId !== project.id || existing.projectPath !== projectPath) {
+        throw new AppError('VALIDATION_FAILED', '历史 Agent 迁移引用与已有项目绑定冲突。')
+      }
+      return existing
+    }
+    this.getDetail(project.id)
+    const timestamp = new Date().toISOString()
+    this.#database.exec('BEGIN IMMEDIATE')
+    try {
+      this.#database
+        .prepare(
+          `INSERT INTO agent_project_links
+            (agent_id, project_id, project_path, linked_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(project.id, project.id, projectPath, timestamp, timestamp)
+      const updateVersion = this.#database.prepare(
+        `UPDATE agent_versions SET snapshot_json = ?, content_hash = ?
+         WHERE id = ? AND agent_id = ?`,
+      )
+      for (const version of project.versions) {
+        const result = updateVersion.run(
+          JSON.stringify({
+            kind: 'project-reference',
+            projectId: project.id,
+            projectVersionId: version.id,
+            projectRevision: project.revision,
+          }),
+          version.contentHash,
+          version.id,
+          project.id,
+        )
+        if (result.changes !== 1) throw new Error(`Missing legacy version ${version.id}`)
+      }
+      this.#database.prepare('DELETE FROM capability_owners WHERE agent_id = ?').run(project.id)
+      this.#database
+        .prepare('DELETE FROM agent_stack_components WHERE agent_id = ?')
+        .run(project.id)
+      this.#database
+        .prepare(
+          `UPDATE agent_locations SET workspace_path = ?, source_kind = 'local-import', source_path = ?
+           WHERE agent_id = ?`,
+        )
+        .run(path.dirname(projectPath), projectPath, project.id)
+      this.#database.exec('COMMIT')
+      return {
+        agentId: project.id,
+        projectId: project.id,
+        projectPath,
+        linkedAt: timestamp,
+        updatedAt: timestamp,
+      }
+    } catch (error) {
+      this.#database.exec('ROLLBACK')
+      throw new AppError('PERSISTENCE_FAILED', '无法提交历史 Agent 项目迁移，数据库已回滚。', {
+        cause: error,
+      })
+    }
+  }
+
+  createProjectVersionReference(
+    agentId: string,
+    project: StudioProject,
+    version: ProjectVersion,
+  ): AgentVersion {
+    const link = this.projectLink(agentId)
+    if (!link || link.projectId !== project.id) {
+      throw new AppError('VALIDATION_FAILED', '当前 Agent 没有绑定该 Studio 项目。')
+    }
+    const snapshot = {
+      kind: 'project-reference' as const,
+      projectId: project.id,
+      projectVersionId: version.id,
+      projectRevision: project.revision,
+    }
+    const reference = agentVersionSchema.parse({
+      id: version.id,
+      agentId,
+      versionNumber: version.versionNumber,
+      snapshot,
+      contentHash: version.contentHash,
+      createdAt: version.createdAt,
+    })
+    const existing = this.#database
+      .prepare(
+        `SELECT id, agent_id, version_number, snapshot_json, content_hash, created_at
+         FROM agent_versions WHERE id = ?`,
+      )
+      .get(reference.id) as AgentVersionRow | undefined
+    if (existing) {
+      const parsed = mapVersion(existing)
+      if (
+        parsed.agentId !== agentId ||
+        parsed.contentHash !== reference.contentHash ||
+        parsed.versionNumber !== reference.versionNumber
+      ) {
+        throw new AppError('VALIDATION_FAILED', '不可变项目 Version 引用发生冲突。')
+      }
+      return parsed
+    }
+    this.#database
+      .prepare(
+        `INSERT INTO agent_versions
+          (id, agent_id, version_number, snapshot_json, content_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        reference.id,
+        reference.agentId,
+        reference.versionNumber,
+        JSON.stringify(reference.snapshot),
+        reference.contentHash,
+        reference.createdAt,
+      )
+    return reference
+  }
+
   list(input: AgentListInput = { scope: 'active' }): Agent[] {
     try {
       const where = input.scope === 'archived' ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
@@ -232,6 +531,13 @@ export class AgentRepository {
     const parsed = updateAgentInputSchema.parse(input)
     const timestamp = new Date().toISOString()
     const current = this.getDetail(parsed.id)
+    if (
+      current.agent.name === parsed.name &&
+      current.agent.description === parsed.description &&
+      current.agent.executionMode === parsed.executionMode
+    ) {
+      return current
+    }
     const nextRevision = current.draft.revision + 1
 
     this.#database.exec('BEGIN IMMEDIATE')
@@ -388,7 +694,7 @@ export class AgentRepository {
     }
   }
 
-  createVersion(agentId: string): AgentVersion {
+  createVersion(agentId: string): MaterializedAgentVersion {
     const detail = this.getDetail(agentId)
     const componentRows = this.#database
       .prepare(
@@ -433,7 +739,7 @@ export class AgentRepository {
       snapshot,
       contentHash: createHash('sha256').update(snapshotJson).digest('hex'),
       createdAt: new Date().toISOString(),
-    })
+    }) as MaterializedAgentVersion
 
     try {
       this.#database
@@ -536,5 +842,15 @@ export class AgentRepository {
 
   close(): void {
     this.#database.close()
+  }
+
+  #mapProjectLink(row: AgentProjectLinkRow): AgentProjectLink {
+    return {
+      agentId: row.agent_id,
+      projectId: row.project_id,
+      projectPath: row.project_path,
+      linkedAt: row.linked_at,
+      updatedAt: row.updated_at,
+    }
   }
 }

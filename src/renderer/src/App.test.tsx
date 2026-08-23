@@ -44,7 +44,10 @@ const createdStatus: AgentStatusProjection = {
   latestPublish: null,
 }
 
-function installApi(overrides: Partial<StudioApi['agents']> = {}) {
+function installApi(
+  overrides: Partial<StudioApi['agents']> = {},
+  commandCenterOverrides: Partial<StudioApi['commandCenter']> = {},
+) {
   let created = false
   const create = vi.fn(() => {
     created = true
@@ -59,6 +62,21 @@ function installApi(overrides: Partial<StudioApi['agents']> = {}) {
   const preferenceUpdate = vi.fn<StudioApi['preferences']['update']>((input) =>
     Promise.resolve(input),
   )
+  const commandSnapshot = vi.fn<StudioApi['commandCenter']['snapshot']>(() =>
+    Promise.resolve({
+      workspace: { status: 'empty', name: null, revision: null, issueCount: 0 },
+      activity: { status: 'idle', activeRunCount: 0, latestRun: null },
+      counts: {
+        activeAgents: 0,
+        archivedAgents: 0,
+        components: 0,
+        runs: 0,
+        experiments: 0,
+      },
+      refreshedAt: '2026-08-21T01:02:00.000Z',
+    }),
+  )
+  const commandSearch = vi.fn<StudioApi['commandCenter']['search']>(() => Promise.resolve([]))
   const api: StudioApi = {
     agents: {
       create,
@@ -108,10 +126,12 @@ function installApi(overrides: Partial<StudioApi['agents']> = {}) {
       export: vi.fn(() => Promise.resolve({ status: 'cancelled' as const })),
     },
     publishing: {
+      runtimes: vi.fn(() => Promise.resolve([])),
       targets: vi.fn(() => Promise.resolve([])),
       preview: vi.fn(() => Promise.reject(new Error('Not used in this test.'))),
       publish: vi.fn(() => Promise.reject(new Error('Not used in this test.'))),
       history: vi.fn(() => Promise.resolve({ mapping: null, receipts: [] })),
+      status: vi.fn(() => Promise.reject(new Error('Not used in this test.'))),
     },
     maintenance: {
       status: vi.fn(() =>
@@ -184,6 +204,10 @@ function installApi(overrides: Partial<StudioApi['agents']> = {}) {
       get: preferenceGet,
       update: preferenceUpdate,
     },
+    commandCenter: {
+      snapshot: commandCenterOverrides.snapshot ?? commandSnapshot,
+      search: commandCenterOverrides.search ?? commandSearch,
+    },
     discovery: {
       search: sourceSearch,
       inspect: vi.fn(() => Promise.reject(new Error('Not used in this test.'))),
@@ -198,7 +222,17 @@ function installApi(overrides: Partial<StudioApi['agents']> = {}) {
     },
   }
   window.studio = api
-  return { api, create, list, statusList, sourceSearch, preferenceGet, preferenceUpdate }
+  return {
+    api,
+    create,
+    list,
+    statusList,
+    sourceSearch,
+    preferenceGet,
+    preferenceUpdate,
+    commandSnapshot,
+    commandSearch,
+  }
 }
 
 describe('App', () => {
@@ -215,12 +249,124 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '导入本地项目' })).toBeEnabled()
   })
 
+  it('shows the real Studio project and active Run in the application topbar', async () => {
+    installApi(
+      {},
+      {
+        snapshot: vi.fn<StudioApi['commandCenter']['snapshot']>(() =>
+          Promise.resolve({
+            workspace: {
+              status: 'blocked',
+              name: 'Research Stack',
+              revision: 7,
+              issueCount: 2,
+            },
+            activity: {
+              status: 'active',
+              activeRunCount: 1,
+              latestRun: {
+                id: 'd5f4d198-02db-46e5-8156-5a888f23ceef',
+                agentId: createdAgent.id,
+                status: 'running',
+                updatedAt: '2026-08-21T01:00:00.000Z',
+              },
+            },
+            counts: {
+              activeAgents: 1,
+              archivedAgents: 0,
+              components: 2,
+              runs: 1,
+              experiments: 0,
+            },
+            refreshedAt: '2026-08-21T01:02:00.000Z',
+          }),
+        ),
+      },
+    )
+    render(<App />)
+
+    expect(
+      await screen.findByRole('button', {
+        name: '当前项目：Research Stack；打开项目设置',
+      }),
+    ).toHaveTextContent('revision 7 · 项目已阻断')
+    expect(screen.getByRole('button', { name: 'Run 状态：运行中' })).toBeEnabled()
+  })
+
+  it('opens global search with Command-K and navigates to a local Agent from the keyboard', async () => {
+    const search = vi.fn<StudioApi['commandCenter']['search']>(() =>
+      Promise.resolve([
+        {
+          id: `agent:${createdAgent.id}`,
+          category: 'agent',
+          label: createdAgent.name,
+          detail: 'Agent · 草稿修订 1',
+          destination: { kind: 'agent', agentId: createdAgent.id },
+        },
+      ]),
+    )
+    installApi(
+      {
+        statusList: vi.fn(() => Promise.resolve([createdStatus])),
+        get: vi.fn(() => Promise.resolve(createdDetail)),
+        status: vi.fn(() => Promise.resolve(createdStatus)),
+      },
+      { search },
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: '搜索本地工作空间' })
+    await user.type(input, 'Research')
+    await screen.findByRole('option', { name: /Research Agent/ })
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeVisible()
+    expect(search).toHaveBeenLastCalledWith({ query: 'Research' })
+  })
+
+  it('executes an application action from global search and keeps summary failures non-blocking', async () => {
+    const search = vi.fn<StudioApi['commandCenter']['search']>(() =>
+      Promise.resolve([
+        {
+          id: 'action:create-agent',
+          category: 'action',
+          label: '创建 Agent',
+          detail: '创建新的本地 Agent 草稿',
+          destination: { kind: 'action', action: 'create-agent' },
+        },
+      ]),
+    )
+    installApi(
+      {},
+      {
+        snapshot: vi.fn<StudioApi['commandCenter']['snapshot']>(() =>
+          Promise.reject(new Error('状态索引暂时不可用。')),
+        ),
+        search,
+      },
+    )
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Run 状态：状态不可用' })).toHaveAttribute(
+      'title',
+      '状态索引暂时不可用。',
+    )
+    await user.keyboard('{Meta>}k{/Meta}')
+    await screen.findByRole('option', { name: /创建 Agent/ })
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('dialog', { name: '创建 Agent' })).toBeVisible()
+  })
+
   it('creates an Agent and reads it back into the list', async () => {
     const { create, statusList } = installApi()
     const user = userEvent.setup()
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: '创建空白 Agent' }))
+    expect(screen.getByText(/Native Harness Agent/)).toBeVisible()
     await user.type(screen.getByLabelText('名称'), 'Research Agent')
     await user.type(screen.getByLabelText('描述'), 'Runs local evaluations.')
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '创建 Agent' }))
@@ -229,7 +375,7 @@ describe('App', () => {
       expect(create).toHaveBeenCalledWith({
         name: 'Research Agent',
         description: 'Runs local evaluations.',
-        executionMode: 'agent-loop',
+        executionMode: 'external-harness',
       }),
     )
     expect(await screen.findByText('Research Agent')).toBeVisible()
@@ -300,14 +446,14 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByText(/版本 2 · 草稿修订 4/)).toBeVisible()
-    expect(screen.getByText(/Stack 就绪 · 2 个组件 · 0 个问题/)).toBeVisible()
+    expect(screen.getByText(/准备状态：就绪 · 2 个组件 · 0 个问题/)).toBeVisible()
     expect(screen.getByText('最近 Run：已完成')).toBeVisible()
     expect(screen.getByText('发布：已成功')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: /Research Agent/ }))
-    expect(await screen.findByText('Stack 就绪')).toBeVisible()
-    expect(screen.getByText('就绪 · 2 个组件 · 1 个 Owner · 0 个未解决问题')).toBeVisible()
-    expect(screen.getByText(/Latency baseline · 已完成/)).toBeVisible()
+    expect(await screen.findByText('Agent 就绪')).toBeVisible()
+    expect(screen.getByText('就绪 · 2 个组件 · 0 个待处理问题')).toBeVisible()
+    expect(screen.queryByText(/Latency baseline · 已完成/)).not.toBeInTheDocument()
     expect(screen.getByText(/本地 Contract Test Target · 已成功/)).toBeVisible()
   })
 
@@ -343,7 +489,7 @@ describe('App', () => {
       }),
     )
 
-    const runs = screen.getByRole('button', { name: '运行记录' })
+    const runs = screen.getByRole('button', { name: '运行' })
     runs.focus()
     await user.keyboard('{Enter}')
     expect(await screen.findByRole('heading', { name: '运行记录' })).toBeVisible()
@@ -367,13 +513,26 @@ describe('App', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const discovery = screen.getByRole('button', { name: '发现' })
+    const components = screen.getByRole('button', { name: '组件' })
+    components.focus()
+    await user.keyboard('{Enter}')
+    const discovery = await screen.findByRole('button', { name: '查找公开来源' })
     discovery.focus()
     await user.keyboard('{Enter}')
 
     expect(await screen.findByRole('heading', { name: '发现组件来源' })).toBeVisible()
     expect(screen.getByText('不下载，不执行代码')).toBeVisible()
     expect(sourceSearch).not.toHaveBeenCalled()
+  })
+
+  it('opens the product publishing workspace without fabricating a remote result', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '发布' }))
+    expect(await screen.findByRole('heading', { name: '发布' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '还没有可发布的 Agent' })).toBeVisible()
+    expect(screen.getByText(/先创建 Agent、选择 Harness 和组件/)).toBeVisible()
   })
 
   it('opens an Agent detail and creates an immutable version', async () => {
@@ -412,10 +571,10 @@ describe('App', () => {
 
     await user.click(await screen.findByRole('button', { name: /Research Agent/ }))
     expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: '创建版本' }))
+    await user.click(screen.getByRole('button', { name: '冻结 Agent Version' }))
 
     expect(await screen.findAllByText('版本 1')).toHaveLength(2)
-    expect(screen.getByText('已从当前草稿创建版本 1。')).toBeVisible()
+    expect(screen.getByText('已冻结不可变 Agent Version 1。')).toBeVisible()
   })
 
   it('duplicates and archives an Agent through keyboard-reachable detail actions', async () => {

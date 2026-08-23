@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import packageMetadata from '../../../package.json' with { type: 'json' }
 import { StudioCoreError } from '../../core/project-errors'
 import type { SourceDiscoveryProvider } from '../../core/source-discovery'
 import {
@@ -15,6 +16,7 @@ import {
 const API_BASE = 'https://api.github.com'
 const API_VERSION = '2022-11-28'
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000
+const MAX_CACHE_ENTRIES = 50
 
 const githubRepositorySchema = z.object({
   id: z.number().int().nonnegative(),
@@ -106,7 +108,15 @@ function parseLocator(locator: string): { owner: string; repository: string } {
     } catch {
       throw invalidLocator(locator)
     }
-    if (!['github.com', 'www.github.com'].includes(url.hostname)) throw invalidLocator(locator)
+    if (
+      !['github.com', 'www.github.com'].includes(url.hostname) ||
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    )
+      throw invalidLocator(locator)
     const segments = url.pathname.split('/').filter(Boolean)
     if (segments.length !== 2) throw invalidLocator(locator)
     value = `${segments[0]}/${segments[1]}`
@@ -130,7 +140,7 @@ function invalidLocator(locator: string): StudioCoreError {
     'DISCOVERY_QUERY_INVALID',
     '仓库定位必须是 owner/repo 或 GitHub 仓库 URL。',
     {
-      details: { locator },
+      details: { locatorLength: locator.length },
       suggestedActions: [{ description: '使用例如 octocat/Hello-World 的公开仓库定位。' }],
     },
   )
@@ -138,7 +148,9 @@ function invalidLocator(locator: string): StudioCoreError {
 
 async function responseMessage(response: Response): Promise<string | undefined> {
   try {
-    const payload = z.object({ message: z.string().optional() }).parse(await response.json())
+    const payload = z
+      .object({ message: z.string().max(1_000).optional() })
+      .parse(await response.json())
     return payload.message
   } catch {
     return undefined
@@ -153,7 +165,11 @@ export class GithubDiscoveryProvider implements SourceDiscoveryProvider {
 
   constructor(options: { fetch?: Fetch; requestTimeoutMs?: number } = {}) {
     this.#fetch = options.fetch ?? globalThis.fetch
-    this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    const configuredTimeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    this.#requestTimeoutMs =
+      Number.isFinite(configuredTimeout) && configuredTimeout >= 1 && configuredTimeout <= 60_000
+        ? configuredTimeout
+        : DEFAULT_REQUEST_TIMEOUT_MS
   }
 
   async search(input: SourceSearchInput, signal?: AbortSignal): Promise<SourceSearchResult> {
@@ -204,7 +220,15 @@ export class GithubDiscoveryProvider implements SourceDiscoveryProvider {
       rateLimit: rateLimit(response.headers),
     })
     const etag = response.headers.get('etag')
-    if (etag) this.#searchCache.set(url.href, { etag, result })
+    if (etag) {
+      this.#searchCache.delete(url.href)
+      this.#searchCache.set(url.href, { etag, result })
+      while (this.#searchCache.size > MAX_CACHE_ENTRIES) {
+        const oldest = this.#searchCache.keys().next().value
+        if (!oldest) break
+        this.#searchCache.delete(oldest)
+      }
+    }
     return result
   }
 
@@ -232,14 +256,14 @@ export class GithubDiscoveryProvider implements SourceDiscoveryProvider {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': API_VERSION,
-      'User-Agent': 'agent-stack-studio/0.4.0',
+      'User-Agent': `agent-stack-studio/${packageMetadata.version}`,
     }
     if (etag) headers['If-None-Match'] = etag
     try {
       return await this.#fetch(url, {
         method: 'GET',
         headers,
-        redirect: 'follow',
+        redirect: 'error',
         signal: requestSignal,
       })
     } catch (error) {

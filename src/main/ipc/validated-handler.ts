@@ -2,12 +2,21 @@ import type { IpcMainInvokeEvent } from 'electron'
 import type { ZodType } from 'zod'
 import { AppError, toPublicError } from '../../shared/errors'
 import { StudioCoreError } from '../../core/project-errors'
+import { redactSensitiveText } from '../../shared/sensitive-data'
 
 export function isTrustedIpcSender(event: IpcMainInvokeEvent): boolean {
-  const senderUrl = event.senderFrame?.url ?? event.sender.getURL()
+  const frame = event.senderFrame
+  if (!frame || frame !== event.sender.mainFrame) return false
+  const senderUrl = event.sender.getURL()
+  if (frame.url !== senderUrl) return false
   try {
     const parsed = new URL(senderUrl)
-    return parsed.protocol === 'file:' && parsed.hostname === ''
+    const decodedPath = decodeURIComponent(parsed.pathname)
+    return (
+      parsed.protocol === 'file:' &&
+      parsed.hostname === '' &&
+      decodedPath.endsWith('/dist/renderer/index.html')
+    )
   } catch {
     return false
   }
@@ -36,7 +45,7 @@ export function createValidatedHandler<TInput, TOutput>(options: {
       const output = await options.handle(parsedInput.data, event)
       return options.output.parse(output)
     } catch (error) {
-      if (error instanceof StudioCoreError) throw new Error(error.message)
+      if (error instanceof StudioCoreError) throw new Error(redactSensitiveText(error.message))
       throw toPublicError(error)
     }
   }

@@ -8,6 +8,9 @@ import {
   publishPreviewInputSchema,
   publishPreviewSchema,
   publishResultSchema,
+  publishRemoteStatusSchema,
+  publishStatusInputSchema,
+  multicaRuntimeListSchema,
   publishTargetsSchema,
 } from '../../shared/publish'
 import type { PublishService } from '../publishing/publish-service'
@@ -20,6 +23,14 @@ export function registerPublishIpc(publishing: PublishService): () => void {
       input: z.undefined(),
       output: publishTargetsSchema,
       handle: () => publishing.targets(),
+    }),
+  )
+  ipcMain.handle(
+    ipcChannels.publishRuntimes,
+    createValidatedHandler({
+      input: z.undefined(),
+      output: multicaRuntimeListSchema,
+      handle: () => publishing.runtimes(),
     }),
   )
   ipcMain.handle(
@@ -46,13 +57,23 @@ export function registerPublishIpc(publishing: PublishService): () => void {
       handle: ({ targetId, agentId }) => publishing.history(targetId, agentId),
     }),
   )
+  ipcMain.handle(
+    ipcChannels.publishStatus,
+    createValidatedHandler({
+      input: publishStatusInputSchema,
+      output: publishRemoteStatusSchema,
+      handle: (input) => publishing.status(input),
+    }),
+  )
 
   return () => {
     for (const channel of [
       ipcChannels.publishTargetsList,
+      ipcChannels.publishRuntimes,
       ipcChannels.publishPreview,
       ipcChannels.publishExecute,
       ipcChannels.publishHistory,
+      ipcChannels.publishStatus,
     ])
       ipcMain.removeHandler(channel)
   }

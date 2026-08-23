@@ -308,3 +308,156 @@
 远程证据：实现提交 `1777dcd`，跨架构 Experiment 取消证据稳定化提交 `18e7ce1`、`bbfe384`；GitHub macOS CI run `32426869067` 在精确 head `bbfe3842e859cd8de79f1ca935fb1114b7f73b37` 上通过，包括 Intel x64 项目检查、应用打包、包验证、Source 状态 packaged E2E 和无凭证 release dry-run。
 
 CI 审计：run `32425437853`、`32426127696` 暴露并复现了取消按钮仍禁用时的跨架构 E2E 竞态，修复后由上述 run 验证；证据提交 `3d150fc` 的 run `32427694409` 和 `a90d8a5` 的 run `32428402546` 多次未分配 runner 且没有执行 step。用户确认可使用公开仓库后，为避免泄露早期提交作者邮箱，保留私有历史而不改写，以隐私门禁审计后的单提交快照建立公开 CI 镜像。私有 `f525c4c` 与公开 `f2b6e62` 共享 tree `055a13a70b08eb088ae2d63558514bf7b7a8b7c8`；公开 Intel CI run `32438973147` 通过完整项目检查、打包、包验证、packaged E2E 和无凭证 dry-run，M25 证据门禁由此关闭。
+
+## M26：工作区命令中心与统一状态词汇
+
+- Main 以只读服务组合 Studio Project、Agent 状态、Component 目录、Run 和 Experiment，不复制事实或引入迁移。
+- 顶栏显示真实项目/revision/验证状态与最近 Run，项目外部变化和活动 Run 触发更快刷新；摘要故障不阻断当前页面。
+- `⌘K` 命令面板只搜索本机元数据与固定白名单操作，支持加载、无结果、失败、焦点约束、上下选择、Enter 直达和 Escape 关闭。
+- Component、Run 与 Experiment 页面接收严格 UUID 目的地后打开完整详情；Agent 继续使用既有详情服务。
+- Agent、Stack、Run、Experiment、Publish、工作区与活动状态集中到同一 Renderer 词汇层，图标和文字始终伴随颜色。
+- packaged E2E 必须在真实 Hybrid Run 后验证工作区与 Run 状态、用 `⌘K` 找到并打开本机 Agent，并保存中文命令中心截图。
+
+完成条件：Core/Service/IPC/Preload/Renderer 与直达页面测试通过；最终 `.app` 输出 `WORKSPACE_COMMAND_CENTER VERIFIED`；隐私门禁、全套本地验证和公开 Intel CI 均成功。
+
+实现状态：78 个测试文件 / 259 项测试、生产构建、CLI、arm64/x64 DMG/ZIP、包验证和 packaged E2E 已在本机与公开 Intel CI 通过；最终项目 revision 15、GUI/CLI v2 包逐字一致，`artifacts/packaged-app-e2e-command-center.png` 已人工复核。
+
+远程证据：私有实现提交 `ef4961d` 与公开实现提交 `d1d374e` 共享 tree `dc5ad74015c9da7f27912ff4bd5a9b2d24c79396`；公开 GitHub macOS CI run `32442138733` 成功，完成 Intel x64 项目检查、应用打包、包验证、工作区命令中心 packaged E2E 与无凭证 release dry-run。
+
+## M27：本地验收、可访问树与断路门禁
+
+- 新增版本化验收分类，逐项记录 7 个一级入口、6 个输入提示和 2 组最终包控制的用途。
+- `npm run check` 自动拒绝 production TODO/FIXME/HACK、占位文案、死操作、未分类 harness 和 GUI/命令中心导航断裂。
+- 最终 `.app` 逐个聚焦并打开全部一级入口，确认页面标题与 `aria-current=page`。
+- Chromium Accessibility Tree 必须暴露 main/navigation landmarks、全局搜索和创建操作，所有可见按钮名称非空。
+- 保留现有对比度、焦点、减少动态效果和 Dialog 键盘契约；不增加业务协议或测试成功旁路。
+
+完成条件：源码门禁、verifier tests、最终 arm64/x64 包与 packaged E2E 通过，输出 `LOCAL_ACCEPTANCE_AUDIT VERIFIED`、`NAVIGATION_REACHABILITY VERIFIED (7)` 和 `PACKAGED_ACCESSIBILITY_TREE VERIFIED`。
+
+本地实现状态：120 个 production 源文件、7 个入口、6 个输入提示和 2 组 packaged harness 已分类，未处置项 0；最终 arm64 `.app` 显示 21 个可见按钮、0 个无名称按钮，7 个入口全部实际打开。
+
+远程证据：私有实现提交 `a52437c` 与公开实现提交 `ebf6bfd` 共享 tree `191c580716fe4901bd26798e4483ed7f8e29f940`；公开 GitHub macOS CI run `32444148841` 成功，完成 Intel x64 项目检查、应用打包、包验证、全入口/AX tree packaged E2E 与无凭证 release dry-run。
+
+## M28：最终证据台账与报告
+
+- 从两张冻结矩阵直接生成 136 条机器需求记录，拒绝删行、改号、非法状态或本地未完成项。
+- 8 条跨领域用户旅程逐条绑定空/加载/成功/失败/取消/冲突/外部刷新/键盘证据。
+- 23 张最终包中文截图绑定旅程、状态和 producer；它们只留在 Git-ignored 本地验收目录。
+- 公开仓库隐私门禁默认拒绝不透明二进制，只允许已复核应用图标。
+- 最终报告必须包含需求 ID、私有/公开提交、验证命令、包路径、截图路径和公开 CI。
+
+完成条件：`verify:evidence-ledger` 与 strict `verify:final-report` 通过；本地全套包验收与公开 Intel CI 成功；最终报告可从本地产物直接生成。
+
+实现状态：80 个测试文件 / 266 项测试全部通过；本地 arm64 `.app`、包内 CLI、DMG/ZIP、包验证、23 张中文截图和无凭证 dry-run 通过，报告 5 verified、3 skipped、2 disabled、0 blocked。`verify:evidence-ledger` 验证 136 条需求、8 条旅程和 23 个截图 producer。
+
+远程证据：私有实现提交 `2c9fdd9` 与公开实现提交 `7748351` 共享 tree `e3846498ce6d4621491f39ac1988e28f2a7cff96`；公开 GitHub macOS CI run `32446386099` 成功，完成 Intel x64 项目检查、应用打包、包验证、packaged E2E 和无凭证 release dry-run。
+
+## M29：稳定性、并发与敏感信息审计
+
+- 对空值、重复请求、并发、权限、超时、异常和敏感信息进行跨 Core/Main/Preload/Renderer/Runtime/CLI 审计。
+- 同一只读请求合并，写操作使只读请求失效；发布、维护、Keychain 与发现操作使用明确单航班或串行边界。
+- 项目迁移和恢复进入进程写锁，仅回收死亡进程的过期锁；重复 Run 取消、Runtime 停止和 Renderer 晚到响应保持幂等。
+- Keychain、发布 Adapter、GitHub 与 Runtime 子进程都有有界超时；异常不再保存远端或子进程原始错误。
+- 日志、工作区、Artifact、备份、恢复和导出使用私有权限；Runtime stdout/stderr 只记录字节数，不记录正文。
+- Git remote、Descriptor、公开来源 URL、CLI/IPC/Runtime 错误和结构化日志统一拒绝或净化凭证与敏感查询参数。
+
+完成条件：83 个测试文件 / 284 项测试、`npm run check`、CLI/macOS 打包、包验证、packaged E2E、公开快照隐私门禁和公开 Intel CI 全部通过；最终 `.app` 与包内 CLI 实际启动。本切片不增加数据库或项目格式迁移，不改变领域、IPC 或 Runtime 协议。
+
+## M30：Agent-first 项目一体化
+
+- 将 Stack、Owner、兼容性、Workflow 和 Version 冻结收敛到 Agent 主流程，项目管理降级为全局上下文与次级设置。
+- 以 `.agent-stack` 作为六类便携事实的唯一来源，SQLite v9 只保留稳定 Agent/项目/不可变 Version 引用和本机运行事实。
+- 为旧 SQLite Agent/Component 和历史项目增加幂等、可恢复、冲突拒绝的启动迁移。
+- 新增可解释兼容性评估，由 Core 给出证据、阻断原因、建议动作和安全验证边界；Descriptor 编辑不再等于人工确认。
+
+完成条件：导入后 Agent 立即可选、GUI↔CLI 一致、revision/外部修改/迁移恢复/未知代码不执行全部有自动证据；六个一级入口、最终 arm64 `.app`、包内 CLI、中文状态截图和公开 CI 通过。
+
+本地实现状态：85 个测试文件 / 286 项测试、`npm run check`、CLI/macOS 打包、包验证、真实 arm64 GUI 与包内 CLI 双向一致、revision 冲突、中文截图和无凭证 dry-run 均通过；证据台账覆盖 150 条需求、8 条旅程和 23 张截图。
+
+远程证据：私有实现提交 `24b6a67` 与稳定性修复 `79f27e1`，公开快照 `5082dbc`，共享 tree `f4058c77c910bef213c96f0f8ec9800dca7e0148`；公开 GitHub macOS CI run `32549181357` 成功，完成 Intel x64 项目检查、应用打包、包验证、packaged E2E 和无凭证 release dry-run。
+
+CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取消 IPC 到达前全部结束的跨架构竞态；修复将该真实验收场景扩展为 12 个单元，本地连续两次通过，并由上述 Intel run 重新验证。
+
+## M31：组件兼容性确认与处置闭环
+
+- 将“待确认”改为“机器证据不足”，为每项缺失证据和 suggested action 提供实际入口。
+- 完整结构化编辑能力/依赖/替换性/激活/配置/权限/Keychain 引用/策略，且隔离人工决策与系统证据写入。
+- 增加确定性契约测试和精确白名单受信 Runtime 验证，覆盖超时、取消、异常清理、日志脱敏、Artifact 与 Receipt。
+- 完成 Component active/archived/all 筛选、归档、恢复与受引用保护的永久删除闭环。
+- 以 Pi 执行 Owner + MRAgent memory/state-store 修正验证 unknown 处置，不执行 fixture 中的未知脚本。
+
+完成条件：Core/CLI/IPC/Preload/Renderer 共用闭环，结构表单的冲突/取消/审计有自动证据，受信子进程真实启停，最终 arm64 GUI 与包内 CLI、恢复/失败/取消/成功截图、隐私门禁和公开 CI 全部通过。
+
+本地实现状态：86 个测试文件 / 295 项测试、format/lint/typecheck/build、CLI/macOS 打包、包验证、真实 arm64 GUI 与包内 CLI、兼容失败/取消/成功、归档恢复、隐私扫描和无凭证 dry-run 均通过；发布报告 5 verified、3 skipped、2 disabled、0 blocked。
+
+远程证据：私有实现 `bbb6c79` 与公开快照 `bb21883` 共享 tree `93a030958c7aac06544433301a948a88b87d49c7`；公开 GitHub macOS CI run `32559072071` 成功，完成项目检查与 Intel macOS 应用打包检查。
+
+## M32：产品重置与兼容迁移
+
+- 面向懂基础 Agent 概念但不会写代码的普通用户，把默认路径重置为 Agent→Harness/组件→聊天/运行→冻结→发布。
+- 一级导航收敛为 Agent、组件、运行、发布、设置；公开发现进入添加来源，旧 Experiment/Workflow 进入只读历史或高级区域。
+- 建立 `agent/harness/component/chat/run/publish/customize/doctor` 产品命令结构；旧命令保持稳定 envelope、退出码、幂等、revision 与结构化弃用提示。
+- 普通界面隐藏 Owner、Receipt、runtimeAdapter 和完整 Descriptor，工程证据仍可展开且历史不丢失。
+- 接受 ADR 0011：Native-first Host Driver 取代 Cordis 统一必经路径；共享 Core、`.agent-stack`、SQLite 本机事实和安全边界继续保留。
+
+完成条件：产品/架构/交互文档不再与新方向冲突；GUI 与 CLI 使用同一 M32 产品投影；M31 项目可无损读取、迁移和回退；旧 CLI 有自动化兼容证据；五个一级入口、空/加载/失败/取消/冲突/键盘与最终 `.app` 导航通过。
+
+本地实现状态：基于已合入 `origin/main@e94a34c` 的 M31 权威实现完成；87 个测试文件 / 303 项测试、format/lint/typecheck/build、arm64 `.app`/DMG/ZIP、包结构与安全边界验证均通过。最终打包 E2E 输出 `NAVIGATION_REACHABILITY VERIFIED (5)`、`PACKAGED_ACCESSIBILITY_TREE VERIFIED (19 buttons, 0 unnamed)`、`PRODUCT_CLI_MIGRATION VERIFIED` 与 `PACKAGED_GUI_CLI_BIDIRECTIONAL VERIFIED`；包内 CLI 读取项目格式 v2，最终 revision 30。当前机器无 Developer ID 身份，因此签名和 notarization 仍是 M37 外部发行门禁，不影响 M32 本地验收。
+
+## M33：真实 Harness、聊天与单次运行
+
+- 实现至少两个版本固定的真实 Harness Host Driver，优先 Pi + DeepSeek Harness；先核实 Multica 发布能力，若 OpenClaw 更符合真实发布目标则记录调整依据。
+- 支持最小 Prompt、Skill、Markdown Memory 和 MCP Tool，逐 Harness 记录原生/适配/降级/不可用。
+- GUI 和人类 CLI 完成聊天、会话恢复与取消；`studio run` 为 Agent/CI 提供非交互 JSON、稳定退出码、超时和幂等。
+- 不用 Harness X 或 fixture 冒充成功；真实安装检测、版本、原生入口、Smoke Test 和脱敏输出必须有证据。
+
+完成条件：两个真实 Harness 都能从 GUI 与 CLI 使用同一 `.agent-stack` 完成至少一次真实聊天和单次运行；Prompt/Skill/Memory/MCP 最小路径有真实或明确降级证据；取消、超时、失败、恢复和键盘通过。
+
+本地实现状态：M33 纵向切片已完成用户授权的 Codex simulation 阶段。真实 Pi `0.84.2` 与 OpenClaw `2026.1.30` 已从固定上游安装，ADR 0020 建立默认关闭、loopback-only、只读 ephemeral Codex 模拟模型层；Pi/OpenClaw 使用独立状态目录且禁用 Harness 工具。`npm run test:e2e:codex-simulation` 通过真实二进制完成 Pi run/chat 与 OpenClaw run/chat 四条 CLI/Core 路径，结果显式记录 `modelLayer.kind=codex-simulation`，不冒充原生 Provider 认证。Driver/Core/IPC/Renderer 的配置、边界标签、失败与兼容测试通过；最终完成条件仍保留 packaged GUI 真实路径和原生 Provider/session 证据，不用本阶段替代。
+
+## M34：Multica 真实发布
+
+- 核实并实现 Multica 官方 validate/publish/status、认证和版本策略，不以本地 Contract Test 替代。
+- GUI 与 CLI 发布同一冻结 Version、payload、内容哈希和幂等键；失败重试不重复创建远端资源。
+- payload 排除本地路径、密钥、聊天、Run 日志和 Artifact；远端状态只来自真实响应与 Receipt。
+
+完成条件：具备凭证时从 GUI 与 CLI 完成同一 Version 的真实发布与状态核对；缺凭证或官方能力时，安全预检与明确阻断有证据且不伪造成功。
+
+本地实现状态：M34 的真实 CLI 远端闭环已完成。官方 Multica v0.4.32 arm64 release 通过官方 SHA-256 后安装到 `~/.local/bin`，Studio 在 App 精简 PATH 下也会查找标准 user-local/Homebrew/NVM 位置。现有原生登录态与在线 Pi Runtime 只读确认后，`npm run test:e2e:multica-real` 用独立临时项目完成 validate ready、真实 create、同一冻结 Version/hash 幂等重试 `reused:true` 和 `agent get` status in-sync；local/remote content hash 一致，远端身份只以 SHA-256 指纹进入脱敏证据。发布包未包含路径、凭证、Runtime/工作区身份、聊天、Run 日志或 Artifact。最终 packaged GUI 对同一 Version/hash 的可视证据仍由 M37 收束。
+
+## M35：开源组件与 Coding Agent 交接
+
+- 为已知开源项目建立版本固定、校验和可审计的安装方案，支持 GitHub URL 与本地目录静态识别。
+- 未知项目不执行，生成完整 Markdown 定制任务，包含来源、目标 Harness、能力映射、边界、文件计划、测试与验收。
+- 安装前保存项目/目标配置快照；安装失败自动恢复或保留明确恢复动作。
+
+完成条件：至少一个已知项目从识别到安装/Smoke Test/失败恢复闭环通过；未知 GitHub 与本地项目均生成等价、可由 Coding Agent 执行的任务文档，Studio 未执行其代码。
+
+本地实现状态：M35 已完成。ADR 0014 建立代码内固定 Recipe 注册表、GitHub URL/本地目录静态识别、完整 Markdown 交接、安装前快照与 revision 保护恢复。首个真实方案固定 Anthropic Algorithmic Art Skill commit/SHA-256/Apache-2.0 License，已从官方固定 URL 完成 revision 1→2 安装与 Markdown/frontmatter/hash Smoke Test，返回 `executedThirdPartyCode:false`。GUI/CLI/Core/IPC 使用同一方案；篡改零写入和写后失败恢复有自动证据。
+
+## M36：扩大 Harness 与组件覆盖
+
+- 增加第三个真实 Harness。
+- 建立约 10–15 个真实验证的组件安装方案，至少一个组件在两个 Harness 上完成 Smoke Test。
+- GUI/CLI/Core 支持更新检测、受控更新、Smoke Test、卸载和快照恢复，并清楚表达跨 Harness 降级。
+- 不建设推荐系统、公共市场或任意 GitHub 自动兼容。
+
+完成条件：三个 Harness 和目标组件清单都有版本/平台/来源/许可/能力矩阵/真实验证证据；跨 Harness 组件、更新失败恢复和卸载恢复通过最终应用验收。
+
+本地实现状态：M36 已完成。ADR 0015 固定 Codex CLI `0.148.0-alpha.9`，真实 Studio 非交互 Run 返回 `M36_OK`、`succeeded`、项目 hash 与 usage。ADR 0016 将组件目录扩展为 12 个带 commit/artifact/license SHA-256、平台、完整度和三 Harness 矩阵的真实 content-only 方案；Codex 项目 12/12 安装并检测为 current，Brand Guidelines 以同一 hash 跨 Codex/OpenClaw 通过内容接线 Smoke。GUI/CLI/Core/IPC 支持 pinned 更新检测、受控更新、Smoke、卸载和 opaque snapshot 恢复；更新失败恢复与 symlink/path/revision 边界有自动证据。95 个测试文件 / 333 项测试、完整 check/build、arm64 App/DMG/ZIP、包验证和 packaged E2E 通过；最终 Renderer/包内 CLI 验证 12 项目录、降级与不执行代码边界。内容 Smoke 不表述为带凭证的模型行为验证。
+
+## M37：macOS 分发、诊断与迁移收束
+
+- 完成签名/公证可验证边界、升级迁移、`studio doctor`、备份恢复和 App 内 CLI 可发现路径。
+- 旧 Experiment/Workflow/四 Profile 能力只读或显式迁移，普通创建路径不再生成旧模型。
+- 在无 Node/npm/开发仓库的受支持 Mac 上，使用最终 `.app` 与包内 CLI 完成 GUI+CLI+Multica 闭环。
+
+完成条件：format/lint/typecheck/test/build、arm64/x64 包、ASAR 安全、迁移、doctor、备份恢复、最终 GUI/CLI/Harness/Multica E2E 全部通过；Developer ID、Apple 公证、真实凭证或硬件缺口逐项给出外部证据，不把跳过描述为完成。
+
+本地实现状态：M37 分发/Doctor 纵向切片已完成。ADR 0017 将用户 CLI 入口固定为 App 内 `Contents/Resources/bin/studio`，使用 Electron 内置 Node 且不修改 PATH/Shell profile；包验证与完整 packaged E2E 在 `PATH=/usr/bin:/bin` 下真实执行成功。GUI/CLI 现共享 Doctor v1 Schema 与 Core，检查 App、CLI、SQLite v9、备份恢复、`.agent-stack`、3 个 Harness 及 Multica 版本/认证/Runtime。全量 `check` 为 98 个测试文件 / 340 项测试；arm64 App/DMG/ZIP、ASAR/哈希验证和 packaged E2E 通过，输出 `PACKAGED_CLI_DOCTOR DEGRADED` 与 `STUDIO_DOCTOR VERIFIED (9 checks, cliPassed=true)`。`degraded` 如实保留 Pi 未安装、Multica CLI 未安装等外部缺口；Developer ID/公证、Intel x64 硬件证据、旧 Experiment/Workflow 收束与最终真实 Multica 闭环仍未完成。
+
+旧模型收束已按 ADR 0018 完成：GUI 与 `studio agent create` 只创建 `external-harness`，Preload/Main IPC 用 literal Schema 再次拒绝旧模式；历史 Agent 只能保留原模式或单向迁移。Workflow/Experiment 默认只读，仅在用户显式进入旧版迁移工具后显示写入操作；兼容 CLI 继续返回弃用通知。全量 `check` 为 99 个测试文件 / 343 项测试；arm64 App/DMG/ZIP 重建后 packaged E2E 通过，同时验证普通 Native 创建无弃用通知、旧 Hybrid 项目只能由 `DEPRECATED_COMMAND` 显式迁移入口建立，以及历史 Workflow/Experiment 的只读→显式迁移闭环。
+
+备份恢复已按 ADR 0019 完成最终包证据：arm64 `.app` 在 GUI 中创建可验证备份，改写备份后 Artifact，再检查、确认并退出；重新启动后 Repository 打开前应用 pending restore，Artifact 回到备份值，Recovery 自动回滚备份保留恢复前改写值，设置页显示“最近恢复”。Packaged E2E 输出 `PACKAGED_BACKUP_RESTORE VERIFIED`，证据图为 `artifacts/packaged-app-e2e-backup-restore.png`。无凭证 `release:dry-run -- --reuse-package` 为 complete，如实报告 3 项 Apple 步骤 skipped、2 项分发功能 disabled。
+
+私有仓库历史 CI 的 Billing 阻断不再作为付费依赖解决；按用户决策，当前实现将从无私有历史的 noreply 隐私审核快照发布到既有公开仓库，使用公开仓库免费 Actions 执行精确 tree 的 Intel 检查。Developer ID/公证与独立 Intel 真机仍是外部条件。Pi/OpenClaw 的 Codex simulation 与真实 Multica CLI 闭环已经完成，原生 Harness Provider/session、最终 packaged GUI 同 Version/hash 和无开发环境 Mac 终验仍按 `docs/external-acceptance-runbook.md` 收束。

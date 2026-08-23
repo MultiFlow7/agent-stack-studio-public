@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AgentRepository } from './agent-repository'
 import { ComponentRepository } from './component-repository'
 import { builtInComponents } from '../components/built-in-components'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
 
 const temporaryDirectories: string[] = []
 
@@ -108,7 +109,29 @@ describe('AgentRepository', () => {
     expect(detail.draft.revision).toBe(2)
     expect(detail.agent.name).toBe('Changed Agent')
     expect(detail.versions[0]).toEqual(version)
-    expect(detail.versions[0]?.snapshot.agent.name).toBe('Baseline Agent')
+    const snapshot = detail.versions[0]?.snapshot
+    expect(snapshot && !isProjectAgentVersionReference(snapshot) ? snapshot.agent.name : null).toBe(
+      'Baseline Agent',
+    )
+    repository.close()
+  })
+
+  it('treats a duplicate settings request as a no-op without bumping revision', async () => {
+    const repository = await createRepository()
+    const agent = repository.create({
+      name: 'Idempotent Agent',
+      description: 'Same values',
+      executionMode: 'agent-loop',
+    })
+
+    const unchanged = repository.update({
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      executionMode: agent.executionMode,
+    })
+
+    expect(unchanged.draft.revision).toBe(1)
     repository.close()
   })
 

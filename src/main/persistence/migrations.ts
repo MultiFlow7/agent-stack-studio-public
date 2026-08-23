@@ -268,6 +268,21 @@ const migrations: Migration[] = [
       CREATE INDEX agents_archived_idx ON agents(archived_at);
     `,
   },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE agent_project_links (
+        agent_id TEXT PRIMARY KEY NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL UNIQUE,
+        project_path TEXT NOT NULL UNIQUE,
+        linked_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX agent_project_links_project_idx
+        ON agent_project_links(project_id);
+    `,
+  },
 ]
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0

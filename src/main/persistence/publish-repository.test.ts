@@ -69,7 +69,7 @@ describe('PublishRepository', () => {
     const migrated = new Database(databasePath)
     expect(migrated.prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual(
       {
-        version: 8,
+        version: 9,
       },
     )
     migrated.close()

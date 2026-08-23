@@ -1,0 +1,7 @@
+{
+  "name": "pi-agent-harness",
+  "version": "0.1.0",
+  "scripts": {
+    "postinstall": "node should-never-run.js"
+  }
+}

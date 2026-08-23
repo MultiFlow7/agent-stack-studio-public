@@ -32,11 +32,15 @@ Agent Stack Studio 是一个仅面向 macOS 的本地桌面工具，用于识别
 - [不可变项目版本完整性 ADR](./docs/adr/0006-immutable-project-version-integrity.md)
 - [macOS 钥匙串与发布就绪 ADR](./docs/adr/0007-macos-keychain-and-release-readiness.md)
 - [本地可信执行 Profile ADR](./docs/adr/0008-local-trusted-execution-profiles.md)
+- [Agent-first 项目集成 ADR](./docs/adr/0009-agent-first-project-integration.md)
+- [兼容处置与证据生命周期 ADR](./docs/adr/0010-compatibility-remediation-evidence-lifecycle.md)
 - [术语表](./docs/glossary.md)
 - [本地产品完整性矩阵](./docs/local-completeness-matrix.md)
 - [正式分发架构就绪矩阵](./docs/release-readiness-matrix.md)
+- [本地验收审计](./docs/local-acceptance-audit.md)
+- [稳定性与敏感信息审计](./docs/resilience-security-audit.md)
 
-当前仓库已完成 M0 至 M25 的可运行纵向切片。M25 完整覆盖 GitHub 公开来源发现的空闲、加载、成功、无结果、取消、离线、15 秒超时、限流和 Provider 错误；每类失败显示与事实一致的恢复动作，Preload 统一移除 Electron IPC 内部前缀。打包证据不依赖外网，只验证公开元数据安全边界和本地输入拒绝。M24 的实验矩阵、M23 的 Run 历史、M22 的 Adapter/Fork 任务与 Component 生命周期、M21 的项目/包 v2 和版本化 Workflow DAG 继续保留。Studio 不自动下载或执行候选仓库；项目 Workflow 和处置任务都不会自动获得 Runtime 信任。真实 Multica Transport 仍需在确认官方认证与接口后接入。
+当前仓库已实现 M0 至 M31 的可运行纵向切片。M31 把“机器证据不足”收敛为可执行处置链：重新静态检查、完整契约编辑、配置/权限/Keychain 引用声明、Native/Configuration/Adapter/Fork/Incompatible 策略、Owner 冲突处理、契约测试与受信最小运行验证。策略或人工编辑不会伪造技术证据；已归档 Component 可在 GUI/CLI 筛选并恢复。`.agent-stack` 仍是 Component、Stack、Owner、兼容结论、Workflow 和不可变 Version 的唯一便携事实源；SQLite v9 只保留本机引用与运行记录。Studio 仍不自动下载或执行候选仓库；真实 Multica Transport 仍需在确认官方认证与接口后接入。
 
 ## 本地开发
 
@@ -58,13 +62,14 @@ npm run package:cli  # 构建并检查与应用同版本的 studio CLI
 npm run test:e2e:packaged # 实际启动已打包 .app 并检查中文设置页与 Renderer 边界
 npm run release:dry-run # 无凭证也运行全套检查并生成结构化分发报告
 npm run verify:public-snapshot # 检查待公开快照中的凭证与个人信息
+npm run verify:local-acceptance # 拒绝未分类占位、测试旁路与断路导航
 ```
 
 工程边界位于 `src/renderer`、`src/preload`、`src/main`、`src/runtime` 和 `src/shared`。Renderer 只能访问 Preload 暴露且经 schema 校验的白名单 API；SQLite、工作区、原生目录选择器和 Runtime 子进程均由 Main 管理。每次正式 Run 都创建全新的 Runtime 子进程，Cordis 类型不会进入领域模型或 UI。
 
 M6 的安装、签名/公证边界、升级、备份恢复和键盘验收见 [macOS 分发说明](./docs/macos-distribution.md)。
 
-CLI 不会修改 PATH。构建后可直接运行 `dist/cli/studio.mjs help`；打包应用会在“Studio 项目”页显示应用包内的准确命令路径。
+CLI 不会修改 PATH。构建后可直接运行 `dist/cli/studio.mjs help`；打包应用会在顶栏的“当前项目”次级入口下的“项目设置”显示应用包内准确命令路径。
 
 打包 GUI 可在启动时直接打开 CLI 管理的同一项目：
 
@@ -76,6 +81,15 @@ CLI 不会修改 PATH。构建后可直接运行 `dist/cli/studio.mjs help`；�
 
 ```bash
 studio project audit --project /path/to/project --json
+```
+
+兼容处置与组件恢复：
+
+```bash
+studio component list --scope archived --project /path/to/project --json
+studio component restore <component-id> --project /path/to/project --revision <n> --json
+studio component contract-test <component-id> --project /path/to/project --revision <n> --json
+studio component runtime-validate <component-id> --timeout-ms 5000 --project /path/to/project --revision <n> --json
 ```
 
 导出经过哈希验证、不含 Keychain 密钥和本机数据的可移植包：

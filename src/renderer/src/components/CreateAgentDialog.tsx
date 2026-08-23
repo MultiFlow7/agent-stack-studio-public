@@ -1,6 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
-import type { CreateAgentInput, ExecutionMode } from '../../../shared/agent'
-import { executionModeLabels } from '../copy'
+import type { CreateAgentInput } from '../../../shared/agent'
 import { useDialogFocus } from '../useDialogFocus'
 
 interface CreateAgentDialogProps {
@@ -10,34 +9,10 @@ interface CreateAgentDialogProps {
   onSubmit: (input: CreateAgentInput) => Promise<void>
 }
 
-const modeOptions: Array<{ value: ExecutionMode; label: string; detail: string }> = [
-  {
-    value: 'agent-loop',
-    label: executionModeLabels['agent-loop'],
-    detail: '由循环控制模型与工具。',
-  },
-  {
-    value: 'workflow',
-    label: executionModeLabels.workflow,
-    detail: '由结构化流程控制执行。',
-  },
-  {
-    value: 'hybrid',
-    label: executionModeLabels.hybrid,
-    detail: '工作流与 Agent 循环共同控制执行。',
-  },
-  {
-    value: 'external-harness',
-    label: executionModeLabels['external-harness'],
-    detail: '由现有项目控制执行。',
-  },
-]
-
 export function CreateAgentDialog({ isSaving, error, onCancel, onSubmit }: CreateAgentDialogProps) {
   const nameInput = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('agent-loop')
   const [fieldError, setFieldError] = useState<string>()
   const { dialogRef, trapTabKey } = useDialogFocus<HTMLElement>()
 
@@ -49,7 +24,7 @@ export function CreateAgentDialog({ isSaving, error, onCancel, onSubmit }: Creat
       return
     }
     setFieldError(undefined)
-    await onSubmit({ name, description, executionMode })
+    await onSubmit({ name, description, executionMode: 'external-harness' })
   }
 
   return (
@@ -106,26 +81,11 @@ export function CreateAgentDialog({ isSaving, error, onCancel, onSubmit }: Creat
             />
             <span className="field__help">选填。说明这个 Agent 的用途。</span>
           </div>
-          <fieldset className="field">
-            <legend>执行模式</legend>
-            <div className="mode-options">
-              {modeOptions.map((option) => (
-                <label className="mode-option" key={option.value}>
-                  <input
-                    checked={executionMode === option.value}
-                    name="execution-mode"
-                    onChange={() => setExecutionMode(option.value)}
-                    type="radio"
-                    value={option.value}
-                  />
-                  <span>
-                    <strong>{option.label}</strong>
-                    <small>{option.detail}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <div className="legacy-boundary-note">
+            <strong>Native Harness Agent</strong>
+            <span>创建后选择 Pi、OpenClaw 或 Codex，再组合 Prompt、Skill、Memory 与 MCP。</span>
+            <small>新 Agent 不再生成旧 Agent Loop、Workflow 或 Hybrid 模式。</small>
+          </div>
           <footer className="modal__footer">
             <button
               className="button button--secondary"

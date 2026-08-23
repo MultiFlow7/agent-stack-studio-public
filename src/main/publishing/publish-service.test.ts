@@ -12,6 +12,7 @@ import type {
   AgentPublisher,
   PublisherContext,
   PublisherOutcome,
+  PublisherValidationContext,
   RemoteAgentSummary,
 } from '../connectors/agent-publisher'
 import { AgentRepository } from '../persistence/agent-repository'
@@ -59,6 +60,39 @@ class FailOncePublisher implements AgentPublisher {
   }
 }
 
+class SlowCountingPublisher implements AgentPublisher {
+  readonly #delegate = new MulticaContractTestPublisher()
+  attempts = 0
+  validations = 0
+
+  validate(
+    target: PublishTarget,
+    publishPackage: PublishPackage,
+    context?: PublisherValidationContext,
+  ): Promise<PublishValidation> {
+    this.validations += 1
+    return this.#delegate.validate(target, publishPackage, context)
+  }
+
+  async publish(
+    target: PublishTarget,
+    publishPackage: PublishPackage,
+    context: PublisherContext,
+  ): Promise<PublisherOutcome> {
+    this.attempts += 1
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    return this.#delegate.publish(target, publishPackage, context)
+  }
+
+  inspect(
+    target: PublishTarget,
+    remoteAgentId: string,
+    signal?: AbortSignal,
+  ): Promise<RemoteAgentSummary | null> {
+    return this.#delegate.inspect(target, remoteAgentId, signal)
+  }
+}
+
 async function fixture(publisher: AgentPublisher = new MulticaContractTestPublisher()) {
   const directory = await mkdtemp(path.join(tmpdir(), 'agent-stack-m5-service-'))
   directories.push(directory)
@@ -96,6 +130,7 @@ async function fixture(publisher: AgentPublisher = new MulticaContractTestPublis
     runs,
     repository: publishRepository,
     publisher,
+    includeLegacyTargets: true,
   })
   return {
     agent,
@@ -175,9 +210,32 @@ describe('PublishService', () => {
     const failed = await resources.publishing.publish(input)
     const succeeded = await resources.publishing.publish(input)
     expect(failed.receipt).toMatchObject({ status: 'failed', attempt: 1 })
+    expect(failed.receipt.failure?.message).not.toContain('模拟远端')
     expect(succeeded.receipt).toMatchObject({ status: 'succeeded', attempt: 2 })
     expect(succeeded.receipt.idempotencyKey).toBe(failed.receipt.idempotencyKey)
     expect(resources.publishing.history(input.targetId, input.agentId).receipts).toHaveLength(2)
+    close(resources)
+  })
+
+  it('coalesces concurrent confirmed publishes into one connector side effect and Receipt', async () => {
+    const publisher = new SlowCountingPublisher()
+    const resources = await fixture(publisher)
+    const input = {
+      targetId: localContractTestTargetId,
+      agentId: resources.agent.id,
+      agentVersionId: resources.version.id,
+      confirmed: true as const,
+    }
+
+    const [first, duplicate] = await Promise.all([
+      resources.publishing.publish(input),
+      resources.publishing.publish(input),
+    ])
+
+    expect(publisher.attempts).toBe(1)
+    expect(publisher.validations).toBe(1)
+    expect(duplicate.receipt.id).toBe(first.receipt.id)
+    expect(resources.publishing.history(input.targetId, input.agentId).receipts).toHaveLength(1)
     close(resources)
   })
 })

@@ -28,9 +28,12 @@ vi.mock('electron', () => ({
 
 import { registerStudioProjectIpc } from './register-studio-project-ipc'
 
+const trustedFrame = {
+  url: 'file:///Applications/Agent%20Stack%20Studio.app/Contents/Resources/app.asar/dist/renderer/index.html',
+}
 const trustedEvent = {
-  senderFrame: { url: 'file:///Applications/Agent%20Stack%20Studio.app/renderer/index.html' },
-  sender: { getURL: () => '' },
+  senderFrame: trustedFrame,
+  sender: { mainFrame: trustedFrame, getURL: () => trustedFrame.url },
 }
 
 const currentProject = {
@@ -178,5 +181,107 @@ describe('Studio Project export IPC', () => {
     ]) {
       expect(handler).not.toHaveBeenCalled()
     }
+  })
+
+  it('strictly validates compatibility lifecycle inputs and exposes cancellation only by component ID', async () => {
+    const componentId = randomUUID()
+    const restore = vi.fn().mockRejectedValue(new Error('restore reached'))
+    const recheck = vi.fn().mockRejectedValue(new Error('recheck reached'))
+    const contractTest = vi.fn().mockRejectedValue(new Error('contract reached'))
+    const runtimeValidate = vi.fn().mockRejectedValue(new Error('runtime reached'))
+    const cancelRuntimeValidation = vi.fn().mockReturnValue(true)
+    registerStudioProjectIpc({
+      projects: {
+        restore,
+        recheck,
+        contractTest,
+        runtimeValidate,
+        cancelRuntimeValidation,
+        onChanged: vi.fn().mockReturnValue(() => undefined),
+      } as unknown as StudioProjectService,
+      getWindow: () => undefined,
+    })
+
+    for (const channel of [
+      ipcChannels.studioProjectComponentRestore,
+      ipcChannels.studioProjectComponentRecheck,
+      ipcChannels.studioProjectComponentContractTest,
+      ipcChannels.studioProjectComponentRuntimeValidate,
+      ipcChannels.studioProjectComponentRuntimeCancel,
+    ]) {
+      await expect(
+        electron.handlers.get(channel)?.(trustedEvent, {
+          componentId,
+          expectedRevision: 4,
+          path: '/tmp/untrusted',
+        }),
+      ).rejects.toThrow('提交的 Agent 数据无效')
+    }
+    expect(restore).not.toHaveBeenCalled()
+    expect(recheck).not.toHaveBeenCalled()
+    expect(contractTest).not.toHaveBeenCalled()
+    expect(runtimeValidate).not.toHaveBeenCalled()
+
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRuntimeValidate)?.(trustedEvent, {
+        componentId,
+        expectedRevision: 4,
+        timeoutMs: 1_500,
+      }),
+    ).rejects.toThrow('Agent Stack Studio 无法完成此操作')
+    expect(runtimeValidate).toHaveBeenCalledWith(componentId, 4, 1_500)
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRuntimeCancel)?.(trustedEvent, {
+        componentId,
+      }),
+    ).resolves.toEqual({ cancelled: true })
+    expect(cancelRuntimeValidation).toHaveBeenCalledWith(componentId)
+  })
+
+  it('prompts to relink a missing component source and keeps cancellation write-free', async () => {
+    const componentId = randomUUID()
+    const state = {
+      projectPath: null,
+      localAgentId: null,
+      project: null,
+      validation: null,
+      integrity: null,
+      recovered: false,
+      changedExternally: false,
+      cliPath: '/trusted/studio.mjs',
+    }
+    const current = vi.fn().mockResolvedValue(state)
+    const componentSourcePath = vi.fn().mockResolvedValue(null)
+    const recheck = vi.fn().mockResolvedValue(state)
+    registerStudioProjectIpc({
+      projects: {
+        current,
+        componentSourcePath,
+        recheck,
+        onChanged: vi.fn().mockReturnValue(() => undefined),
+      } as unknown as StudioProjectService,
+      getWindow: () => undefined,
+    })
+
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRecheck)?.(trustedEvent, {
+        componentId,
+        expectedRevision: 11,
+      }),
+    ).resolves.toEqual(state)
+    expect(recheck).not.toHaveBeenCalled()
+
+    electron.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/trusted/sources/pi'],
+    })
+    await expect(
+      electron.handlers.get(ipcChannels.studioProjectComponentRecheck)?.(trustedEvent, {
+        componentId,
+        expectedRevision: 11,
+      }),
+    ).resolves.toEqual(state)
+    expect(recheck).toHaveBeenCalledWith(componentId, 11, '/trusted/sources/pi')
   })
 })

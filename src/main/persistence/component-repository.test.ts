@@ -67,6 +67,7 @@ describe('ComponentRepository', () => {
       { version: 6 },
       { version: 7 },
       { version: 8 },
+      { version: 9 },
     ])
     expect(
       migrated
@@ -97,6 +98,8 @@ describe('ComponentRepository', () => {
     components.selectOwner(agent.id, 'prompt-policy', x.id)
     const resolved = components.selectOwner(agent.id, 'context-builder', y.id)
     expect(resolved.compilation.status).toBe('ready')
+    const duplicateOwner = components.selectOwner(agent.id, 'context-builder', y.id)
+    expect(duplicateOwner.revision).toBe(resolved.revision)
 
     const version = agents.createVersion(agent.id)
     expect(version.snapshot.stack.components).toHaveLength(2)

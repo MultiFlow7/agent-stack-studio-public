@@ -5,7 +5,7 @@
 - 当前 `package.json` 声明的 Agent Stack Studio 版本仅支持 macOS 12 Monterey 及更高版本。
 - 本地打包产物与构建机架构一致。Apple Silicon 与 Intel 产物必须分别在对应的 macOS 构建机上运行相同检查。
 - M6 不引入自动更新服务、远程后台或新的网络权限。升级通过用户主动安装更高版本完成。
-- M7 随应用打包同版本 `studio` CLI。应用展示包内准确路径，但不修改 PATH、Shell profile 或用户的命令解析配置。
+- M37 随应用打包同版本 `studio` CLI。应用展示包内可执行启动器的准确路径，但不修改 PATH、Shell profile 或用户的命令解析配置。启动器使用 App 内置 Electron/Node 运行时，目标 Mac 无需预装 Node.js、npm 或开发仓库。
 - 最终 GUI 可以通过 `--project <path>` 显式打开 CLI 管理的同一项目；该启动参数不修改项目格式、IPC 或 Renderer 权限。
 
 ## 2. 构建产物
@@ -19,7 +19,7 @@ npm run verify:mac-package
 npm run test:e2e:packaged
 ```
 
-M14 的打包 E2E 会直接运行 `.app` 内 `studio` CLI，使 GUI 通过 `--project` 读取同一临时项目，并验证 revision 0→1→2→3 的 CLI↔GUI 往返。这一过程不写 PATH，不使用外部服务，也不执行导入 fixture 中的代码。
+M37 的打包 E2E 会直接运行 `.app/Contents/Resources/bin/studio`，并把 `PATH` 限制为 `/usr/bin:/bin`，以证明 CLI 不依赖开发环境中的 Node.js。然后使 GUI 通过 `--project` 读取同一临时项目，验证 CLI↔GUI 修改同一 revision 和项目事实。这一过程不写 PATH，不使用外部服务，也不执行导入 fixture 中的代码。
 
 打包配置固定了 Bundle ID `studio.agentstack.desktop`、最低 macOS 12.0、Hardened Runtime 和 Electron 必要的 JIT entitlements。Electron Builder 负责生成 `.app` 和重建原生依赖，ZIP 与 DMG 分别由 macOS 自带的 `ditto` 和 `hdiutil` 生成。每次构建同时生成 `SHA256SUMS-<version>-<arch>.txt`。验证脚本读取实际 ASAR 检查 Renderer CSP 和 Main 默认拒绝标记，重算 DMG/ZIP 哈希，并检查 Bundle ID、系统版本下限、可执行文件、签名与公证票据。
 
@@ -75,7 +75,11 @@ npm run release:dry-run
 4. 任一迁移失败时回滚当前迁移，应用不将数据库描述为升级成功。
 5. 旧版应用如果发现数据库 schema 高于自身支持版本，会停止打开，不尝试降级或改写。
 
-迁移测试从 v1 数据库连续升级到当前 v8，验证 Agent 记录与归档默认值保留、SQLite `integrity_check` 通过，并覆盖迁移失败回滚重试、幂等重跑和新版 schema 拒绝。
+迁移测试从 v1 数据库连续升级到当前 v9，验证 Agent 记录、归档默认值与发布映射保留、SQLite `integrity_check` 通过，并覆盖迁移失败回滚重试、幂等重跑和新版 schema 拒绝。
+
+## 4.1 Studio Doctor
+
+GUI 在“设置 > Studio Doctor”、CLI 在 `studio doctor --json` 输出同一份 v1 诊断报告。报告包含 App/包内 CLI、SQLite 迁移与待恢复状态、`.agent-stack` 完整性、Pi/OpenClaw/Codex Host Driver 和 Multica 发布就绪度。Doctor 不执行模型、不读取凭证原文、不自动修改状态；Harness 凭证和真实回复仍以 `run/chat` E2E 为准。
 
 ## 5. 备份内容
 
@@ -104,6 +108,8 @@ SQLite 内的 Keychain 服务/账户引用会进入备份，恢复到另一台 M
 6. 恢复后的数据库按正常启动路径迁移到当前 schema。
 
 自动回滚备份保存在 Application Support 下的 `recovery/`，不会被后续手动备份嵌套收集。
+
+M37 的 packaged E2E 使用最终 arm64 `.app` 执行一次真实跨进程恢复：备份后改写 Artifact，经 GUI 检查和确认后退出，再启动同一可执行文件。验收会证明当前 Artifact 恢复为备份值、`recovery/` 中的自动回滚备份保留恢复前值，且设置页投影真实“最近恢复”时间。输出标记为 `PACKAGED_BACKUP_RESTORE VERIFIED`。
 
 ## 6.1 本地路径与卸载
 
@@ -136,7 +142,7 @@ Main 进程从 Electron `app.getPath('userData')` 解析唯一 Application Suppo
 - `build/icon.icns` 是正式应用图标；验证器检查 Info.plist 的 `CFBundleIconFile` 和最终 Resources 文件。
 - Agent 密钥原文只写入当前 Mac 登录钥匙串。SQLite 与备份保存引用；跨设备恢复会显示“本机缺失”，需要重新写入。
 - `test:e2e:packaged` 实际启动最终 `.app`，验证中文设置页、Preload 白名单、Renderer 无 Node 并生成截图。测试调试端口只由该命令显式开启。
-- 本地 Apple Silicon 运行 arm64 全套检查；GitHub `macos-15-intel` runner 运行 Intel x64 同一套 package、verify 和 E2E。发布记录必须分别保存两种结果。
+- 本地 Apple Silicon 运行 arm64 全套检查；GitHub `macos-15-intel` runner 运行 Intel x64 同一套 package、verify 和 E2E。发布记录必须分别保存两种结果。当前 HEAD `ff6dd50` 的 run `32624691417` / job `97158079034` 在 runner 分配前终止（`runner_id: 0`、0 steps），check-run annotation 明确原因为账户近期付款失败或支出上限不足；因此 x64 保持外部阻断，不将 arm64 结果写成双架构通过。
 - 当前不构建 Universal Binary，不静默修改 PATH，不引入自动更新。Developer ID 与公证仍按第 3 节外部凭据边界执行。
 
 ## 9. M18 项目包分发兼容边界

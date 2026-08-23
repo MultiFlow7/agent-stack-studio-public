@@ -14,6 +14,7 @@ import type {
   DataLocationId,
   RestorePreview,
 } from '../../../shared/maintenance'
+import type { StudioDoctorReport } from '../../../shared/doctor'
 
 function formatBytes(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`
@@ -25,7 +26,7 @@ export function SettingsView() {
   const [status, setStatus] =
     useState<Awaited<ReturnType<typeof window.studio.maintenance.status>>>()
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [busyAction, setBusyAction] = useState<'backup' | 'select' | 'restore'>()
+  const [busyAction, setBusyAction] = useState<'doctor' | 'backup' | 'select' | 'restore'>()
   const [error, setError] = useState<string>()
   const [backupResult, setBackupResult] =
     useState<Extract<CreateBackupResult, { status: 'saved' }>>()
@@ -35,6 +36,7 @@ export function SettingsView() {
   const [demoFeedback, setDemoFeedback] = useState<string>()
   const [openingLocation, setOpeningLocation] = useState<DataLocationId>()
   const [revealedLocation, setRevealedLocation] = useState<DataLocationId>()
+  const [doctorReport, setDoctorReport] = useState<StudioDoctorReport>()
 
   const load = useCallback(async () => {
     setLoadState('loading')
@@ -61,6 +63,18 @@ export function SettingsView() {
       if (result.status === 'saved') setBackupResult(result)
     } catch (backupError) {
       setError(backupError instanceof Error ? backupError.message : '无法创建本地备份。')
+    } finally {
+      setBusyAction(undefined)
+    }
+  }
+
+  async function runDoctor(): Promise<void> {
+    setBusyAction('doctor')
+    setError(undefined)
+    try {
+      setDoctorReport(await window.studio.doctor!.run())
+    } catch (doctorError) {
+      setError(doctorError instanceof Error ? doctorError.message : '无法完成诊断。')
     } finally {
       setBusyAction(undefined)
     }
@@ -232,6 +246,67 @@ export function SettingsView() {
                 </small>
               </span>
             </div>
+          </section>
+
+          <section aria-labelledby="doctor-title" className="maintenance-section">
+            <header className="maintenance-section__header">
+              <ShieldCheck aria-hidden="true" size={22} />
+              <div>
+                <h2 id="doctor-title">Studio Doctor</h2>
+                <p>只读检查 App、包内 CLI、数据迁移、项目完整性、Harness 和 Multica。</p>
+              </div>
+            </header>
+            <button
+              className="button button--primary"
+              disabled={Boolean(busyAction)}
+              onClick={() => void runDoctor()}
+              type="button"
+            >
+              <ShieldCheck aria-hidden="true" size={17} />
+              {busyAction === 'doctor' ? '正在诊断…' : '运行完整诊断'}
+            </button>
+            {doctorReport ? (
+              <div className="doctor-report" aria-live="polite">
+                <div className="maintenance-feedback">
+                  {doctorReport.status === 'blocked' ? (
+                    <WarningCircle aria-hidden="true" size={20} />
+                  ) : (
+                    <CheckCircle aria-hidden="true" size={20} weight="fill" />
+                  )}
+                  <span>
+                    <strong>
+                      {doctorReport.status === 'ready'
+                        ? '全部就绪'
+                        : doctorReport.status === 'degraded'
+                          ? '可用，但存在降级'
+                          : '存在阻断项'}
+                    </strong>
+                    <small>
+                      {doctorReport.counts.passed} 项通过 · {doctorReport.counts.warnings} 项警告 ·{' '}
+                      {doctorReport.counts.blocking} 项阻断
+                    </small>
+                  </span>
+                </div>
+                <ul className="doctor-checks">
+                  {doctorReport.checks.map((item) => (
+                    <li key={item.id} data-status={item.status}>
+                      <span className="doctor-checks__status">
+                        {item.status === 'pass'
+                          ? '通过'
+                          : item.status === 'warning'
+                            ? '警告'
+                            : '阻断'}
+                      </span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <p>{item.summary}</p>
+                        {item.remediation ? <small>{item.remediation}</small> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
 
           <section aria-labelledby="backup-title" className="maintenance-section">

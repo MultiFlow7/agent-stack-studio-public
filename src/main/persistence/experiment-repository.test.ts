@@ -40,7 +40,7 @@ describe('ExperimentRepository migration', () => {
     const migrated = new Database(databasePath)
     expect(
       migrated.prepare('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1').get(),
-    ).toEqual({ version: 8 })
+    ).toEqual({ version: 9 })
     expect(
       migrated
         .prepare(

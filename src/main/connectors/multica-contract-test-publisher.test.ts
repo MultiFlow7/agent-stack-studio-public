@@ -28,6 +28,8 @@ describe('MulticaContractTestPublisher', () => {
     const outcome = await publisher.publish(target, publishPackage, {
       idempotencyKey: 'a'.repeat(64),
       remoteAgentId: null,
+      runtimeId: null,
+      signal: new AbortController().signal,
     })
     expect(outcome.testOnly).toBe(true)
     expect(await publisher.inspect(target, outcome.remoteAgentId)).toMatchObject({

@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CapabilityId, ComponentRecord } from '../../../shared/component'
 import type { StackState } from '../../../shared/runtime-plan'
-import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
+import { capabilityLabel, compatibilityLabels, stackStatusLabels, validationLabels } from '../copy'
 
 interface StackEditorViewProps {
   agentId: string
@@ -24,8 +24,10 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
   const [isChoosing, setChoosing] = useState(false)
   const [pendingKey, setPendingKey] = useState<string>()
   const firstConflict = useRef<HTMLFieldSetElement>(null)
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setStatus('loading')
     setError(undefined)
     try {
@@ -33,17 +35,24 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
         window.studio.components.list(),
         window.studio.components.getStack(agentId),
       ])
-      setCatalog(nextCatalog)
+      if (request !== loadRequest.current) return
+      setCatalog(nextCatalog.filter(({ archivedAt }) => !archivedAt))
       setStack(nextStack)
       setStatus('ready')
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : '无法载入 Stack。')
+      if (request !== loadRequest.current) return
+      setError(loadError instanceof Error ? loadError.message : '无法载入 Harness 与组件。')
       setStatus('error')
     }
   }, [agentId])
 
   useEffect(() => {
     void load()
+  }, [load])
+
+  useEffect(() => {
+    if (!window.studio.studioProject?.onExternalChanged) return undefined
+    return window.studio.studioProject.onExternalChanged(() => void load())
   }, [load])
 
   const coverage = useMemo(() => {
@@ -80,15 +89,26 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
       setStack(await change())
       await onChanged()
     } catch (changeError) {
-      setError(changeError instanceof Error ? changeError.message : '无法更新 Stack。')
+      setError(changeError instanceof Error ? changeError.message : '无法更新 Harness 与组件。')
     } finally {
       setPendingKey(undefined)
     }
   }
 
+  async function mutateProject(
+    change: (expectedRevision: number) => Promise<unknown>,
+  ): Promise<StackState> {
+    const state = await window.studio.studioProject!.current()
+    if (!state.project || state.localAgentId !== agentId) {
+      throw new Error('请先切换到该 Agent 绑定的当前项目。')
+    }
+    await change(state.project.revision)
+    return window.studio.components.getStack(agentId)
+  }
+
   if (status === 'loading') {
     return (
-      <div aria-busy="true" aria-label="正在载入 Stack" className="stack-loading">
+      <div aria-busy="true" aria-label="正在载入 Harness 与组件" className="stack-loading">
         <div className="skeleton skeleton--title" />
         <div className="skeleton" />
         <div className="skeleton" />
@@ -101,7 +121,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
       <div className="stack-error" role="alert">
         <WarningCircle aria-hidden="true" size={22} />
         <div>
-          <h2>无法载入 Stack</h2>
+          <h2>无法载入 Harness 与组件</h2>
           <p>{error}</p>
         </div>
         <button className="button button--secondary" onClick={() => void load()} type="button">
@@ -116,8 +136,10 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
     <div className="stack-editor">
       <header className="stack-editor__header">
         <div>
-          <h2>Stack 草稿</h2>
-          <p>修订 {stack.revision}。先确认能力覆盖与 Owner，再编译 Runtime Plan。</p>
+          <h2 id="stack-editor-heading" tabIndex={-1}>
+            Harness 与组件
+          </h2>
+          <p>修订 {stack.revision}。先确认每项能力由哪个组件负责，再检查运行计划。</p>
         </div>
         <button
           aria-expanded={isChoosing}
@@ -158,7 +180,12 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                     disabled={Boolean(pendingKey)}
                     onClick={() =>
                       void runChange(`add-${component.id}`, () =>
-                        window.studio.components.addToStack({ agentId, componentId: component.id }),
+                        mutateProject((expectedRevision) =>
+                          window.studio.studioProject!.addToStack({
+                            expectedRevision,
+                            componentId: component.id,
+                          }),
+                        ),
                       )
                     }
                     type="button"
@@ -171,7 +198,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
               ))}
             </ul>
           ) : (
-            <p className="picker-empty">目录中的组件都已加入当前 Stack。</p>
+            <p className="picker-empty">目录中的组件都已加入当前 Agent。</p>
           )}
         </section>
       ) : null}
@@ -180,7 +207,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
         <section className="stack-empty">
           <Cube aria-hidden="true" size={28} weight="duotone" />
           <h3>先添加一个组件</h3>
-          <p>Runtime Plan 只会使用已验证组件和明确的 capability owner。</p>
+          <p>运行计划只会使用已验证组件和明确的负责实现。</p>
           <button
             className="button button--primary"
             onClick={() => setChoosing(true)}
@@ -212,20 +239,25 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                   <span className="component-compatibility">
                     {compatibilityLabels[component.descriptor.compatibility.level]}
                     <small>{validationLabels[component.descriptor.compatibility.validation]}</small>
+                    {component.descriptor.compatibility.level === 'unknown' ? (
+                      <small>不是等待点击确认；缺少替换边界、契约测试或受信运行证据。</small>
+                    ) : null}
                   </span>
                   <button
-                    aria-label={`从 Stack 移除 ${component.descriptor.name}`}
+                    aria-label={`从 Agent 移除 ${component.descriptor.name}`}
                     className="icon-button"
                     disabled={Boolean(pendingKey)}
                     onClick={() =>
                       void runChange(`remove-${component.id}`, () =>
-                        window.studio.components.removeFromStack({
-                          agentId,
-                          componentId: component.id,
-                        }),
+                        mutateProject((expectedRevision) =>
+                          window.studio.studioProject!.removeFromStack({
+                            expectedRevision,
+                            componentId: component.id,
+                          }),
+                        ),
                       )
                     }
-                    title={`从 Stack 移除 ${component.descriptor.name}`}
+                    title={`从 Agent 移除 ${component.descriptor.name}`}
                     type="button"
                   >
                     <Trash aria-hidden="true" size={17} />
@@ -237,7 +269,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
 
           <section className="stack-section" aria-labelledby="coverage-title">
             <div className="section-heading">
-              <h3 id="coverage-title">能力覆盖与 Owner</h3>
+              <h3 id="coverage-title">能力覆盖与负责实现</h3>
               <span>{coverage.length} 项能力</span>
             </div>
             <div className="coverage-list">
@@ -271,18 +303,20 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                             name={`owner-${capability}`}
                             onChange={() =>
                               void runChange(`owner-${capability}`, () =>
-                                window.studio.components.selectOwner({
-                                  agentId,
-                                  capability,
-                                  componentId: component.id,
-                                }),
+                                mutateProject((expectedRevision) =>
+                                  window.studio.studioProject!.setOwner({
+                                    expectedRevision,
+                                    capability,
+                                    componentId: component.id,
+                                  }),
+                                ),
                               )
                             }
                             type="radio"
                           />
                           <span>
                             <strong>{component.descriptor.name}</strong>
-                            <small>{overlap ? '候选 Owner' : '唯一 Provider，自动负责'}</small>
+                            <small>{overlap ? '候选实现' : '唯一实现，自动负责'}</small>
                           </span>
                         </label>
                       ))}
@@ -290,7 +324,7 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
                     {overlap && !selectedId ? (
                       <p>
                         <WarningCircle aria-hidden="true" size={16} />
-                        能力重叠，请选择一个 Owner。
+                        能力重叠，请选择一个负责实现。
                       </p>
                     ) : null}
                   </fieldset>
@@ -312,10 +346,10 @@ export function StackEditorView({ agentId, onChanged }: StackEditorViewProps) {
             <WarningCircle aria-hidden="true" size={22} weight="fill" />
           )}
           <div>
-            <h3>Runtime Plan {stack.compilation.status === 'ready' ? '已就绪' : '已阻断'}</h3>
+            <h3>Agent {stackStatusLabels[stack.compilation.status]}</h3>
             <p>
               {stack.compilation.status === 'ready'
-                ? '所有 Owner、依赖和兼容性检查已通过。'
+                ? '所有负责实现、依赖和兼容性检查已通过。'
                 : '解决以下问题后才能进入运行。'}
             </p>
           </div>

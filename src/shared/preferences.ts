@@ -5,6 +5,7 @@ export const appViewSchema = z.enum([
   'discovery',
   'agents',
   'components',
+  'publish',
   'experiments',
   'runs',
   'settings',

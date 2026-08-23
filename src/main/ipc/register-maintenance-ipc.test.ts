@@ -7,11 +7,12 @@ const electron = vi.hoisted(() => ({
   handle: vi.fn(),
   removeHandler: vi.fn(),
   openPath: vi.fn(),
+  showOpenDialog: vi.fn(),
   showItemInFolder: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
-  dialog: { showOpenDialog: vi.fn() },
+  dialog: { showOpenDialog: electron.showOpenDialog },
   ipcMain: {
     handle: electron.handle.mockImplementation(
       (channel: string, handler: (event: unknown, input: unknown) => Promise<unknown>) => {
@@ -28,9 +29,12 @@ vi.mock('electron', () => ({
 
 import { registerMaintenanceIpc } from './register-maintenance-ipc'
 
+const trustedFrame = {
+  url: 'file:///Applications/Agent%20Stack%20Studio.app/Contents/Resources/app.asar/dist/renderer/index.html',
+}
 const trustedEvent = {
-  senderFrame: { url: 'file:///Applications/Agent%20Stack%20Studio.app/renderer/index.html' },
-  sender: { getURL: () => '' },
+  senderFrame: trustedFrame,
+  sender: { mainFrame: trustedFrame, getURL: () => trustedFrame.url },
 }
 
 describe('maintenance data-location IPC', () => {
@@ -112,5 +116,54 @@ describe('maintenance data-location IPC', () => {
     })
     expect(electron.showItemInFolder).toHaveBeenCalledWith('/trusted/studio.sqlite3')
     expect(electron.openPath).not.toHaveBeenCalled()
+  })
+
+  it('keeps packaged E2E picker paths in Main-owned selectors', async () => {
+    const createBackup = vi.fn(() =>
+      Promise.resolve({
+        status: 'saved' as const,
+        backupName: 'Verified backup',
+        createdAt: '2026-08-23T05:00:00.000Z',
+        fileCount: 1,
+        sizeBytes: 100,
+        databaseSchemaVersion: 9,
+        excludedSymbolicLinks: 0,
+      }),
+    )
+    const inspectBackup = vi.fn(() =>
+      Promise.resolve({
+        preview: {
+          backupName: 'Verified backup',
+          createdAt: '2026-08-23T05:00:00.000Z',
+          sourceApplicationVersion: '0.9.0',
+          sourceDatabaseSchemaVersion: 9,
+          targetDatabaseSchemaVersion: 9,
+          migrationRequired: false,
+          fileCount: 1,
+          sizeBytes: 100,
+          excludedSymbolicLinks: 0,
+        },
+      }),
+    )
+    registerMaintenanceIpc({
+      maintenance: { createBackup, inspectBackup } as unknown as DataMaintenanceService,
+      getWindow: () => undefined,
+      scheduleRestart: vi.fn(),
+      selectBackupDestination: () => Promise.resolve('/main-owned/backup-parent'),
+      selectRestoreSource: () => Promise.resolve('/main-owned/backup'),
+    })
+
+    await expect(
+      electron.handlers.get(ipcChannels.maintenanceCreateBackup)?.(trustedEvent, {}),
+    ).resolves.toMatchObject({ status: 'saved', backupName: 'Verified backup' })
+    await expect(
+      electron.handlers.get(ipcChannels.maintenanceSelectRestore)?.(trustedEvent, {}),
+    ).resolves.toMatchObject({
+      status: 'selected',
+      preview: { backupName: 'Verified backup' },
+    })
+    expect(createBackup).toHaveBeenCalledWith('/main-owned/backup-parent')
+    expect(inspectBackup).toHaveBeenCalledWith('/main-owned/backup')
+    expect(electron.showOpenDialog).not.toHaveBeenCalled()
   })
 })

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { RunArtifact, RuntimeRunResult } from '../../shared/run'
 
@@ -17,10 +17,12 @@ export class ArtifactService {
     const relativePath = path.join(runId, 'result.json')
     const directory = path.join(this.#root, runId)
     const contents = `${JSON.stringify(result, null, 2)}\n`
-    await mkdir(directory, { recursive: true })
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await chmod(directory, 0o700)
     await writeFile(path.join(this.#root, relativePath), contents, {
       encoding: 'utf8',
       flag: 'wx',
+      mode: 0o600,
     })
     return {
       runId,
