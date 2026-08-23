@@ -460,4 +460,4 @@ CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取�
 
 备份恢复已按 ADR 0019 完成最终包证据：arm64 `.app` 在 GUI 中创建可验证备份，改写备份后 Artifact，再检查、确认并退出；重新启动后 Repository 打开前应用 pending restore，Artifact 回到备份值，Recovery 自动回滚备份保留恢复前改写值，设置页显示“最近恢复”。Packaged E2E 输出 `PACKAGED_BACKUP_RESTORE VERIFIED`，证据图为 `artifacts/packaged-app-e2e-backup-restore.png`。无凭证 `release:dry-run -- --reuse-package` 为 complete，如实报告 3 项 Apple 步骤 skipped、2 项分发功能 disabled。
 
-私有仓库历史 CI 的 Billing 阻断不再作为付费依赖解决；按用户决策，当前实现将从无私有历史的 noreply 隐私审核快照发布到既有公开仓库，使用公开仓库免费 Actions 执行精确 tree 的 Intel 检查。Developer ID/公证与独立 Intel 真机仍是外部条件。Pi/OpenClaw 的 Codex simulation 与真实 Multica CLI 闭环已经完成，原生 Harness Provider/session、最终 packaged GUI 同 Version/hash 和无开发环境 Mac 终验仍按 `docs/external-acceptance-runbook.md` 收束。
+私有仓库历史 CI 的 Billing 阻断不再作为付费依赖解决。按用户决策，当前实现以公开 main 为唯一父链生成无私有历史、noreply 作者的隐私审核快照；私有 `41feac2` 与公开 `f08fe1c` 共享 tree `c29532e`。公开免费 macOS CI run `32630803855` / Intel job `97173213000` 已完成全量项目检查和 x64 应用打包/检查。Developer ID/公证与独立 Intel 真机仍是外部条件。Pi/OpenClaw 的 Codex simulation 与真实 Multica CLI 闭环已经完成，原生 Harness Provider/session、最终 packaged GUI 同 Version/hash 和无开发环境 Mac 终验仍按 `docs/external-acceptance-runbook.md` 收束。
