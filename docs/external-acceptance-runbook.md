@@ -99,7 +99,7 @@ GUI 还需在同一项目的“发布”页选择同一 Runtime，确认 payload
 5. 创建备份，执行升级/迁移和恢复；旧 Experiment/Workflow 默认保持只读，只有显式迁移模式可写。
 6. arm64 与 Intel x64 分别保存 package/verify/E2E 结果，不把单架构结果称为 Universal 或另一架构通过。
 
-Intel GitHub CI 必须从待发布精确 tree 运行同一 `check`、package、verify、packaged E2E 和 release dry-run。按用户决策不购买 GitHub 付费计划：私有历史不公开，当前 tree 以 noreply 隐私审核快照推送到公开仓库并使用免费 Actions。公开快照 `ac6a6b3` 的 run `32631239054` 同 SHA 重试已完成项目检查、Intel x64 应用打包/检查与 packaged E2E；第一次 attempt 在包验证后遇到既有 Experiment UI 10 秒等待波动，重试通过且未更改 tree。历史私有仓库 0-step job 不作为代码证据。
+Intel GitHub CI 必须从待发布精确 tree 运行同一 `check`、package、verify、packaged E2E 和 release dry-run。按用户决策不购买 GitHub 付费计划：私有历史不公开，当前 tree 以 noreply 隐私审核快照推送到公开仓库并使用免费 Actions。公开快照 `de52cd9` 的 run `32682598762` / Intel job `97301739150` 已完成项目检查、Intel x64 应用打包/检查与 packaged E2E，用时 8m28s。历史私有仓库 0-step job 不作为代码证据。
 
 ## 6. 完成判定
 
