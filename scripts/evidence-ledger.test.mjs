@@ -29,7 +29,7 @@ describe('final evidence ledger', () => {
   it('verifies every frozen row, eight-state flow and local screenshot producer', () => {
     const result = verifyEvidenceLedger(repositoryRoot)
     expect(result.summary).toMatchObject({
-      requirementCount: 153,
+      requirementCount: 154,
       flowCount: 8,
       screenshotCount: 23,
     })
@@ -42,7 +42,7 @@ describe('final evidence ledger', () => {
       requireArtifacts: false,
     })
     expect(report.baseline).toBe('bceec476a6205a047efab7523ec75015ad70a905')
-    expect(report.requirements).toHaveLength(153)
+    expect(report.requirements).toHaveLength(154)
     expect(
       report.screenshots.every(({ publication }) => publication === 'local-only-gitignored'),
     ).toBe(true)

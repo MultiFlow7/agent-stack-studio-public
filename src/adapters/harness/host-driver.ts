@@ -49,7 +49,11 @@ const MAX_STDERR_BYTES = 1024 * 1024
 
 export async function resolveExecutable(
   name: string,
-  options: { environment?: NodeJS.ProcessEnv; homeDirectory?: string } = {},
+  options: {
+    environment?: NodeJS.ProcessEnv
+    homeDirectory?: string
+    applicationDirectories?: string[]
+  } = {},
 ): Promise<string | null> {
   if (name.includes(path.sep)) {
     try {
@@ -67,6 +71,12 @@ export async function resolveExecutable(
     path.join(homeDirectory, '.npm-global', 'bin'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
+    ...(options.applicationDirectories ?? [
+      '/Applications/Codex.app/Contents/Resources',
+      '/Applications/ChatGPT.app/Contents/Resources',
+      path.join(homeDirectory, 'Applications', 'Codex.app', 'Contents', 'Resources'),
+      path.join(homeDirectory, 'Applications', 'ChatGPT.app', 'Contents', 'Resources'),
+    ]),
   )
   const nvmVersionsRoot = path.join(homeDirectory, '.nvm', 'versions', 'node')
   try {
@@ -106,9 +116,16 @@ export function spawnBounded(
   },
 ): Promise<SpawnResult> {
   return new Promise((resolve, reject) => {
+    const baseEnvironment = options.env ?? process.env
+    const executableDirectory = path.dirname(path.resolve(executable))
+    const environmentPath = baseEnvironment.PATH ?? ''
+    const childEnvironment = {
+      ...baseEnvironment,
+      PATH: [executableDirectory, environmentPath].filter(Boolean).join(path.delimiter),
+    }
     const child = spawn(executable, args, {
       cwd: options.cwd,
-      env: options.env ?? process.env,
+      env: childEnvironment,
       stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       shell: false,
       detached: true,

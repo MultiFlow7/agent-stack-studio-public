@@ -1,6 +1,6 @@
 # ADR 0013：M34 通过 Multica 官方 CLI 发布 Agent
 
-- 状态：已接受，M34 实施中
+- 状态：已接受，M34 真实 GUI/CLI 发布验收已完成
 - 日期：2026-08-23
 - 依据：ADR 0009、ADR 0011、ADR 0012、Multica v0.4.32 与上游提交 `1cc46b2`
 
@@ -39,4 +39,6 @@ M34 必须把本地 Contract Test 目标替换为真实 Multica `validate/publis
 
 `npm run test:e2e:multica-real` 使用独立临时 `.agent-stack`、临时 SQLite 和私有远端 Agent 完成真实 validate、首次 create、相同 Version/hash 重试、`agent get` status。结果为 validation ready、首次 Receipt succeeded、重试 `reused:true`、同一远端身份、local/remote content hash 完全相同；发布包结构化排除了 local-paths、keychain-secrets、experiment-data、chat-history、run-logs 和 artifacts。证据只保存远端 ID 的 SHA-256 指纹，不保存 Runtime/工作区/本机身份、路径、凭证、Prompt、响应、聊天或日志。
 
-M34 的 CLI 真实远端闭环已完成；最终 M37 仍需在最终 `.app` 中保存 GUI 对同一 Version/hash 的可视证据，并完成签名、公证和双架构终验。
+2026-08-24 的最终 arm64 打包验收中，GUI 在同一临时项目上冻结 Version 1，展示发布范围与 payload hash，明确确认后通过官方 Multica CLI 创建私有 Agent，并从真实 `agent get` 获得 `in-sync`。随后 App 内 CLI 对同一 Version 重试，返回 `reused:true`，且 GUI hash 前缀、CLI 本地/远端 payload hash 和 Receipt 远端身份全部一致。
+
+`STUDIO_PACKAGED_EXTERNAL_ACCEPTANCE=1 npm run test:e2e:packaged-external` 输出 `PACKAGED_EXTERNAL_GUI_MULTICA VERIFIED`、`PACKAGED_EXTERNAL_CLI_MULTICA_REUSE VERIFIED` 和总结 `PACKAGED_EXTERNAL_E2E VERIFIED`。Git ignored 脱敏证据只保留 Version/payload hash、远端 ID 指纹、幂等和 Doctor 状态；不含本地路径、凭证、Runtime/工作区/本机身份、Prompt、回复、聊天或日志。M34 本身已完成；Developer ID、公证和独立无开发环境 Mac 属于 M37 外部分发门禁。

@@ -1,6 +1,6 @@
 # ADR 0020：Pi/OpenClaw 的 Codex 模拟模型层必须显式、隔离且仅用于测试
 
-- 状态：已接受，M33 验收阶段已实施
+- 状态：已接受，M33 授权的模拟模型验收已完成
 - 日期：2026-08-23
 - 依据：ADR 0011、ADR 0012、用户对 Pi/OpenClaw 下载与 Codex 模拟测试的明确授权
 
@@ -23,6 +23,8 @@ Codex CLI 的稳定非交互入口是 `codex exec`。它支持 JSONL 输出、`-
 
 在真实 Pi `0.84.2`、OpenClaw `2026.1.30` 和 Codex CLI `0.148.0-alpha.9` 上，`npm run test:e2e:codex-simulation` 已完成 Pi run/chat 与 OpenClaw run/chat 四条 Studio CLI/Core 路径，输出 `CODEX_SIMULATED_HARNESS_E2E VERIFIED`。这证明真实 Harness 原生入口、配置隔离、JSON 解析、聊天/单次运行和 Studio 事实闭环；它不证明 Pi/OpenClaw 自有 Provider 登录。
 
+2026-08-24 的最终 arm64 打包验收进一步直接启动 electron-builder 生成的 `.app`，在 `PATH=/usr/bin:/bin` 下由 GUI 分别完成 Pi 与 OpenClaw 的两轮聊天和一次非交互 run。两个 Harness 均验证两轮 chat 复用同一 `sessionId`、结果写入项目 hash，且 `modelLayer.kind` 全部为 `codex-simulation`。`STUDIO_PACKAGED_EXTERNAL_ACCEPTANCE=1 npm run test:e2e:packaged-external` 输出 `PACKAGED_EXTERNAL_E2E VERIFIED`；脱敏 JSON 与三张截图保存在 Git ignored `artifacts/`，不进入公开快照。
+
 ## 后果
 
-M33 可以在不部署本地模型、不扩散模型凭证的前提下先验证真实 Harness 集成，并且证据不会混淆模型来源。最终分发若要求 Harness 原生 Provider 认证或真实会话续接，仍需在对应 Harness 的原生登录流程中单独验收；Codex simulation 不能替代该证据。
+M33 可以在不部署本地模型、不扩散模型凭证的前提下验证真实 Harness 集成与原生 session 续接，并且证据不会混淆模型来源。如果未来把 Pi/OpenClaw 自有 Provider 登录纳入发布要求，仍需在对应 Harness 的原生登录流程中单独验收；Codex simulation 不能替代该证据。

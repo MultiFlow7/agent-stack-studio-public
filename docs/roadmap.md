@@ -413,7 +413,7 @@ CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取�
 
 完成条件：两个真实 Harness 都能从 GUI 与 CLI 使用同一 `.agent-stack` 完成至少一次真实聊天和单次运行；Prompt/Skill/Memory/MCP 最小路径有真实或明确降级证据；取消、超时、失败、恢复和键盘通过。
 
-本地实现状态：M33 纵向切片已完成用户授权的 Codex simulation 阶段。真实 Pi `0.84.2` 与 OpenClaw `2026.1.30` 已从固定上游安装，ADR 0020 建立默认关闭、loopback-only、只读 ephemeral Codex 模拟模型层；Pi/OpenClaw 使用独立状态目录且禁用 Harness 工具。`npm run test:e2e:codex-simulation` 通过真实二进制完成 Pi run/chat 与 OpenClaw run/chat 四条 CLI/Core 路径，结果显式记录 `modelLayer.kind=codex-simulation`，不冒充原生 Provider 认证。Driver/Core/IPC/Renderer 的配置、边界标签、失败与兼容测试通过；最终完成条件仍保留 packaged GUI 真实路径和原生 Provider/session 证据，不用本阶段替代。
+本地实现状态：M33 按用户授权的 Codex simulation 范围已完成。真实 Pi `0.84.2` 与 OpenClaw `2026.1.30` 已从固定上游安装，ADR 0020 建立默认关闭、loopback-only、只读 ephemeral Codex 模拟模型层；Pi/OpenClaw 使用独立状态目录且禁用 Harness 工具。除 CLI/Core E2E 外，最终 arm64 `.app` 已在 `PATH=/usr/bin:/bin` 下分别完成 Pi/OpenClaw 两轮聊天与一次非交互 run；各 Harness 两轮聊天复用同一原生 session，历史均显式记录 `modelLayer.kind=codex-simulation`。`npm run test:e2e:packaged-external` 输出 `PACKAGED_EXTERNAL_PI VERIFIED`、`PACKAGED_EXTERNAL_OPENCLAW VERIFIED` 与 `PACKAGED_EXTERNAL_E2E VERIFIED`；不冒充 Pi/OpenClaw 自有 Provider 认证。
 
 ## M34：Multica 真实发布
 
@@ -423,7 +423,7 @@ CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取�
 
 完成条件：具备凭证时从 GUI 与 CLI 完成同一 Version 的真实发布与状态核对；缺凭证或官方能力时，安全预检与明确阻断有证据且不伪造成功。
 
-本地实现状态：M34 的真实 CLI 远端闭环已完成。官方 Multica v0.4.32 arm64 release 通过官方 SHA-256 后安装到 `~/.local/bin`，Studio 在 App 精简 PATH 下也会查找标准 user-local/Homebrew/NVM 位置。现有原生登录态与在线 Pi Runtime 只读确认后，`npm run test:e2e:multica-real` 用独立临时项目完成 validate ready、真实 create、同一冻结 Version/hash 幂等重试 `reused:true` 和 `agent get` status in-sync；local/remote content hash 一致，远端身份只以 SHA-256 指纹进入脱敏证据。发布包未包含路径、凭证、Runtime/工作区身份、聊天、Run 日志或 Artifact。最终 packaged GUI 对同一 Version/hash 的可视证据仍由 M37 收束。
+本地实现状态：M34 真实 GUI/CLI 远端闭环已完成。官方 Multica v0.4.32 arm64 release 通过官方 SHA-256 后安装到 `~/.local/bin`，Studio 在 App 精简 PATH 下也会查找标准 user-local/Homebrew/NVM 位置。CLI/Core 真实验收已完成 validate/create/reused/get。随后最终 arm64 `.app` 从 GUI 冻结 Version 1 并首次发布到 Multica，App 内 CLI 对同一 Version 重试返回 `reused:true`，GUI/CLI payload hash、Receipt 远端身份与 `agent get` status 一致且为 `in-sync`。Git ignored 脱敏证据未包含路径、凭证、Runtime/工作区/本机身份、Prompt、回复、聊天、Run 日志或 Artifact。
 
 ## M35：开源组件与 Coding Agent 交接
 
@@ -460,4 +460,4 @@ CI 审计：首次公开 run `32547701822` 暴露 4 个短运行单元可在取�
 
 备份恢复已按 ADR 0019 完成最终包证据：arm64 `.app` 在 GUI 中创建可验证备份，改写备份后 Artifact，再检查、确认并退出；重新启动后 Repository 打开前应用 pending restore，Artifact 回到备份值，Recovery 自动回滚备份保留恢复前改写值，设置页显示“最近恢复”。Packaged E2E 输出 `PACKAGED_BACKUP_RESTORE VERIFIED`，证据图为 `artifacts/packaged-app-e2e-backup-restore.png`。无凭证 `release:dry-run -- --reuse-package` 为 complete，如实报告 3 项 Apple 步骤 skipped、2 项分发功能 disabled。
 
-私有仓库历史 CI 的 Billing 阻断不再作为付费依赖解决。按用户决策，当前实现以公开 main 为唯一父链生成无私有历史、noreply 作者的隐私审核快照；私有 `41feac2` 与公开 `f08fe1c` 共享 tree `c29532e`。公开免费 macOS CI run `32630803855` / Intel job `97173213000` 已完成全量项目检查和 x64 应用打包/检查。Developer ID/公证与独立 Intel 真机仍是外部条件。Pi/OpenClaw 的 Codex simulation 与真实 Multica CLI 闭环已经完成，原生 Harness Provider/session、最终 packaged GUI 同 Version/hash 和无开发环境 Mac 终验仍按 `docs/external-acceptance-runbook.md` 收束。
+私有仓库历史 CI 的 Billing 阻断不再作为付费依赖解决。按用户决策，当前实现以公开 main 为唯一父链生成无私有历史、noreply 作者的隐私审核快照；私有 `7ffb162` 与公开 `ac6a6b3` 共享 tree `936288a`。公开免费 macOS CI run `32631239054` 的同 SHA 重试 / Intel job `97175003008` 已完成全量项目检查、x64 应用打包/检查与 packaged E2E。最终 arm64 `.app` 进一步在受限 PATH 下完成 Pi/OpenClaw Codex simulation session/run、GUI/CLI 真实 Multica 同 Version/hash/远端身份和 Doctor ready；App 现可发现 NVM 中的 Node CLI 及 Codex/ChatGPT App bundle 中的受信 Codex 二进制。Developer ID/公证与独立无开发环境 Mac 真机终验仍是外部条件。

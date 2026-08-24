@@ -10,10 +10,10 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | RR-001 | 用户分发要求 1；ADR 0003 | GUI、CLI 和项目格式从明确的共享版本来源取值 | COMPLETE | `package.json#version` 是应用/CLI/Agent Stack Package 生成器唯一来源；compatibility manifest 绑定项目 v2、导出包 v2、DB schema、Bundle ID 与 macOS 下限 | 无 | `release-compatibility.test.ts`；最终 ASAR 验证 |
 | RR-002 | 分发文档 1/2 | arm64 `.app`、DMG、ZIP 可构建 | COMPLETE | `package:mac`；架构/命名测试 | 无 | 保持 |
-| RR-003 | 用户分发要求 2 | arm64 包可安装、启动并完成核心流程 | COMPLETE | packaged E2E 实际启动 `.app`；普通 CLI 创建 Native Agent，显式兼容 fixture 验证历史 Hybrid/Stack/冻结/Run | 无 | DMG 拖装人工证据依赖独立安装环境，不冒充本机 `.app` 证据 |
+| RR-003 | 用户分发要求 2 | arm64 包可安装、启动并完成核心流程 | COMPLETE | packaged E2E 实际启动 `.app`；普通 CLI 创建 Native Agent，显式兼容 fixture 验证历史 Hybrid/Stack/冻结/Run；授权外部 E2E 进一步完成 Pi/OpenClaw session/run 与真实 Multica GUI/CLI | 无 | DMG 拖装人工证据依赖独立安装环境，不冒充本机 `.app` 证据 |
 | RR-004 | 分发文档 8；ADR 0007/0019 | Intel x64 在 GitHub macOS Intel runner 执行同一包检查 | COMPLETE | 公开隐私审核快照 `f08fe1c` 的免费 macOS CI run `32630803855` / job `97173213000` 在官方 `macos-15-intel` runner 完成 checkout、锁定依赖、全量项目检查和 Intel 应用打包/检查，用时 5m53s | 无付费 GitHub 依赖；独立 Intel 真机人工安装仍见 RR-028 | 保持公开 noreply 快照与隐私扫描；不把自动 x64 包证据表述成真机人工安装 |
 | RR-005 | 分发文档 8 | 不把单架构结果表述为 Universal Binary 或另一架构真机验证 | COMPLETE | 文档与包名显式架构 | Intel 真机人工走查外部 | 保持 |
-| RR-006 | 用户分发要求 3；ADR 0003 | CLI 随应用打包、可被 GUI 发现、不静默修改 PATH | COMPLETE | 项目设置显示路径；包验证检查 unpacked CLI | 无 | 保持 |
+| RR-006 | 用户分发要求 3；ADR 0003/0017 | CLI 随应用打包、可被 GUI 发现、不静默修改 PATH | COMPLETE | 项目设置显示路径；包验证检查 unpacked CLI；受限 PATH 验收证明 NVM 中 Pi/OpenClaw 可使用同目录 Node，并可发现 Codex/ChatGPT App bundle 中的受信 Codex 二进制 | 无 | 不修改 PATH/Shell profile；不扫描未知 App |
 | RR-007 | 用户停止条件 13 | 实际从最终 `.app` 路径执行 CLI 并与 GUI 读取同一 fixture | COMPLETE | packaged E2E 直接执行 `.app` 内 CLI；GUI 通过 `--project` 打开同一 fixture；CLI 导入、GUI 加入 Stack、CLI 复核/移出、GUI 再刷新全部断言 | 无 | M14 关闭 |
 | RR-008 | 用户分发要求 4 | Developer ID 身份/证书通过环境或钥匙串注入，不写仓库 | COMPLETE | electron-builder 标准注入；文档列出变量 | 真实 Developer ID 外部 | 保持 |
 | RR-009 | 用户分发要求 4；分发文档 3 | 公证凭据/API key/Apple ID/keychain profile 可注入 | COMPLETE | electron-builder 配置与文档 | Apple 凭证外部 | 保持 |
@@ -35,8 +35,8 @@
 | RR-025 | 用户分发要求 8 | 未来分发改动仅限凭证/公证/元数据/地址/渠道/Apple 强制项 | COMPLETE | manifest 只列出允许变更字段；release config schema 不接受业务字段或凭证 | 外部发布条件 | strict schema/Zod/回归测试；ADR 0007 补充 |
 | RR-026 | 分发文档 3 | 有凭证时严格要求 Developer ID 签名 | EXTERNAL-BLOCKED | `STUDIO_REQUIRE_SIGNED=1` 验证路径已实现 | Developer ID 证书/会员 | 获得证书后执行，不改业务代码 |
 | RR-027 | 分发文档 3 | 有凭证时 Apple 公证并 staple | EXTERNAL-BLOCKED | `STUDIO_REQUIRE_NOTARIZED=1` 验证路径已实现 | Apple 公证凭证 | 获得凭证后执行，不改业务代码 |
-| RR-028 | 分发文档 8；ADR 0019 | Intel 真机人工安装与核心流程走查 | EXTERNAL-BLOCKED | x64 CI 自动包门禁已由公开 run `32630803855` 通过；尚无独立 Intel 真机 DMG 拖装、GUI/CLI/Multica 人工闭环证据 | Intel 真机/人工环境 | 外部条件到位后执行；不需要 GitHub 付费计划 |
-| RR-029 | 用户验证 5 | 每个里程碑全套 format/lint/type/test/build/CLI/package/verify/E2E | COMPLETE | M13–M31 历史通过；M32–M37 当前为 102 files / 360 tests、build、arm64 App/DMG/ZIP、包验证、Codex simulation Pi/OpenClaw、真实 Multica CLI、无 Node CLI、Doctor、旧模型迁移与跨重启备份恢复证据；公开 Intel CI 同 tree 通过 | 无 | 最终 Apple 凭证与独立安装环境闭环后重跑 release dry-run |
+| RR-028 | 分发文档 8；ADR 0019 | 独立无 Node/npm/开发仓库 Mac 的 DMG 拖装与 GUI+CLI+Multica 人工终验，并覆盖 Intel 真机 | EXTERNAL-BLOCKED | 本机最终 arm64 `.app` 黑盒闭环、包内 Node/CLI、备份恢复、受限 PATH Doctor 均已通过；x64 CI 自动包门禁已由公开 run `32631239054` 同 SHA 重试通过；尚无独立 Mac，尤其是 Intel 真机的安装闭环证据 | 独立 macOS 机器、Intel 真机与人工环境 | 外部条件到位后按 runbook 执行；不需要 GitHub 付费计划，不修改业务协议 |
+| RR-029 | 用户验证 5 | 每个里程碑全套 format/lint/type/test/build/CLI/package/verify/E2E | COMPLETE | M13–M31 历史通过；M32–M37 当前为 102 files / 362 tests、build、arm64 App/DMG/ZIP、包验证、packaged Pi/OpenClaw Codex simulation、GUI/CLI 真实 Multica、无 Node CLI、Doctor、旧模型迁移与跨重启备份恢复证据；公开 Intel CI 待当前新 tree 复核 | 无 | 当前 tree 推送公开隐私快照后复核 Intel CI；Apple 凭证与独立安装环境闭环后再跑有凭证 release dry-run |
 | RR-030 | 用户实施要求 | 每个里程碑提交、推送并确认 GitHub CI | COMPLETE | M13–M31 历史 CI 成功；M32–M37 私有功能分支提交已推送；同 tree 以无私有历史、noreply 作者的公开快照 `f08fe1c` 推送，免费 macOS CI run `32630803855` 完整成功 | 无付费 GitHub 依赖 | 后续切片继续使用隐私审核公开快照，不公开私有历史 |
 | RR-031 | 用户停止条件 14 | 最终报告关联需求 ID、提交、测试、包路径、截图、CI | COMPLETE | `generate:final-report` 从两张矩阵与证据 manifest 生成 `release/final-local-completeness-report.json`，M30 含 150 条需求、9 条命令、4 个包路径和 23 张本地截图；报告注入 M30 私有/公开提交与成功 CI | 无 | `verify:final-report` strict + artifacts 验证 |
 | RR-032 | M21；用户分发要求 7 | 正式分发前 Workflow 已进入稳定项目/包协议且历史项目无需领域重写 | COMPLETE | project/package v2、v0/v1 迁移、v3 前向拒绝、历史 v1 快照哈希保留、Workflow Core/CLI/IPC/GUI 与最终 arm64 包全部通过；最终 v2 包含 1 Workflow/1 Version 且无本机路径或敏感值 | 无 | `VERSIONED_WORKFLOW_DAG VERIFIED`；release compatibility/ASAR/package/E2E 证据 |
@@ -51,6 +51,7 @@
 | RR-041 | M30；SQLite v9 | 发布升级不丢失旧 Agent/Component 或历史 Version 引用 | COMPLETE | v1→v9 数据库迁移与 legacy portable migration 覆盖新装、幂等、备份、失败恢复、冲突和较新版拒绝 | 无 | migration/Core/package startup tests |
 | RR-042 | M30；单一事实源 | 正式分发无需运行 Component/Stack 双库同步器 | COMPLETE | GUI/CLI 共用 `.agent-stack` v2；SQLite v9 只保留稳定引用与本机运行事实 | 无 | service/repository/packaged GUI↔CLI tests |
 | RR-043 | M30/M31；ADR 0010；安全边界 | Compatibility Assessment/Contract Test 不执行未知代码；受信 Runtime 真实验证内置 Adapter 生命周期，覆盖超时、取消、脱敏、Artifact 与 Receipt | COMPLETE | 共享静态评估器 + Core 系统证据写入 + Runtime 精确白名单/全新 Cordis 子进程；Renderer 无 Node/FS/DB/Keychain | 无 | Pi/MRAgent、trusted runtime/Core/IPC/security/package verification tests |
+| RR-044 | M33/M34/M37；ADR 0013/0020 | 最终打包 GUI 与 App 内 CLI 使用同一项目事实完成真实 Harness 和 Multica 闭环 | COMPLETE | `test:e2e:packaged-external` 直接启动最终 arm64 `.app`；Pi/OpenClaw 各 2 chat + 1 run，chat 各自同 session；GUI 首次真实 Multica 发布，CLI 同 Version 重试 reused，payload hash/远端身份一致，Doctor ready | 复用用户已授权的 Codex simulation 与 Multica 登录；证据 Git ignored | 证据 JSON 只保留哈希/指纹和状态，不保留路径、凭证、身份、Prompt/回复/聊天/日志 |
 
 ## 首次冻结结论
 

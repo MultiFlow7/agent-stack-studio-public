@@ -32,6 +32,7 @@
     "package:cli": "npm run build:cli && node scripts/verify-cli-package.mjs",
     "release:dry-run": "node scripts/release-dry-run.mjs",
     "test:e2e:packaged": "node scripts/e2e-packaged-app.mjs",
+    "test:e2e:packaged-external": "node scripts/e2e-packaged-external.mjs",
     "test:e2e:codex-simulation": "npm run build:cli && node scripts/e2e-codex-simulated-harnesses.mjs",
     "test:e2e:multica-real": "npm run build:cli && node scripts/e2e-real-multica-publish.mjs",
     "verify:mac-package": "node scripts/verify-macos-package.mjs",

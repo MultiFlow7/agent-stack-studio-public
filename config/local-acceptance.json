@@ -67,6 +67,15 @@
         "STUDIO_PACKAGED_E2E"
       ],
       "purpose": "最终 .app 与包内 CLI 的黑盒验收入口"
+    },
+    {
+      "path": "scripts/e2e-packaged-external.mjs",
+      "tokens": [
+        "STUDIO_CAPTURE_USER_DATA_PATH",
+        "STUDIO_PACKAGED_E2E",
+        "STUDIO_PACKAGED_EXTERNAL_ACCEPTANCE"
+      ],
+      "purpose": "用户授权后执行最终 .app 的真实 Harness/Codex 模拟与 Multica 私有发布黑盒验收"
     }
   ]
 }

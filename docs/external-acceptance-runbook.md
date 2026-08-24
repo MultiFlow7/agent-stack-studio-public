@@ -45,7 +45,7 @@ Doctor 的 `ready` 只证明版本/认证/Runtime 前置条件，不证明模型
 ```bash
 studio agent create /path/to/pi-acceptance --name "M33 Pi Acceptance" --json
 studio harness select pi --project /path/to/pi-acceptance --revision <revision> --json
-studio run start --project /path/to/pi-acceptance --message "Reply with M33_RUN_OK only." --idempotency-key m33-pi-run-v1 --json
+studio run --project /path/to/pi-acceptance --message "Reply with M33_RUN_OK only." --idempotency-key m33-pi-run-v1 --json
 studio chat send --project /path/to/pi-acceptance --message "Reply with M33_CHAT_ONE only." --json
 studio chat send --project /path/to/pi-acceptance --session <session-uuid> --message "Reply with M33_CHAT_TWO only." --json
 ```
@@ -58,7 +58,9 @@ OpenClaw 项目使用相同顺序，把 Harness 换为 `openclaw`。每个 Harne
 4. `projectHash` 是当前项目事实的 SHA-256；聊天/回复只保存在 `.agent-stack-local`，不进入冻结 Version。
 5. 至少一个项目包含 Prompt、Markdown Memory、Skill；MCP 仅在 Harness 支持且用户已批准的情况下验收，降级必须逐项显示。
 
-保存证据时只保留状态、Harness/version、session/request ID、usage、project hash 和脱敏后的短响应；不得保存 Provider 凭证或原始 stderr。
+保存证据时只保留状态、Harness/version、session 是否复用、usage 是否可用、project hash 是否记录与模型层类型；不保存原始 session/request ID、Prompt、响应、Provider 凭证或 stderr。
+
+2026-08-24 已按用户授权完成 Codex simulation 打包验收：最终 arm64 `.app` 在受限 PATH 下完成 Pi/OpenClaw 各两轮聊天和一次 run，两轮聊天各自复用同一原生 session，历史全部标记 `codex-simulation`。该证据不表述为 Pi/OpenClaw 自有 Provider 认证。
 
 ## 4. M34：真实 Multica 幂等发布
 
@@ -84,6 +86,8 @@ GUI 还需在同一项目的“发布”页选择同一 Runtime，确认 payload
 
 2026-08-23 已完成的 CLI 证据：官方 arm64 v0.4.32 校验安装；现有原生登录态与在线 Pi Runtime 只读确认；`STUDIO_MULTICA_REAL_ACCEPTANCE=1 npm run test:e2e:multica-real` 返回 `REAL_MULTICA_PUBLISH_E2E VERIFIED`。脱敏证据证明 validate ready、首次 succeeded、重试 reused、同一远端身份指纹、status in-sync 和 local/remote hash 相同。临时项目/SQLite 已删除，私有远端验收 Agent 保留供远端事实审计；证据不含其原始 ID、Runtime/工作区/本机身份、路径、凭证、Prompt、响应、聊天或日志。
 
+2026-08-24 的打包 GUI 证据已补齐：最终 `.app` 冻结 Version 1，GUI 首次真实发布成功并显示 `in-sync`；随后 App 内 CLI 对同一 Version 重试得到 `reused:true`，两端 payload hash 和远端身份一致。`artifacts/packaged-external-evidence.json` 及截图被 Git ignore，脱敏扫描未发现本地路径、凭证、聊天标记或日志。
+
 ## 5. M37：正式 macOS 与无开发环境终验
 
 在没有 Node、npm 和开发仓库的受支持 Mac 上，从最终 DMG 安装 `.app`：
@@ -95,14 +99,14 @@ GUI 还需在同一项目的“发布”页选择同一 Runtime，确认 payload
 5. 创建备份，执行升级/迁移和恢复；旧 Experiment/Workflow 默认保持只读，只有显式迁移模式可写。
 6. arm64 与 Intel x64 分别保存 package/verify/E2E 结果，不把单架构结果称为 Universal 或另一架构通过。
 
-Intel GitHub CI 必须从待发布精确 tree 运行同一 `check`、package、verify、packaged E2E 和 release dry-run。按用户决策不购买 GitHub 付费计划：私有历史不公开，当前 tree 以 noreply 隐私审核快照推送到公开仓库并使用免费 Actions。公开快照 `f08fe1c` 的 run `32630803855` 已完成项目检查与 Intel 应用打包/检查；历史私有仓库 0-step job 不作为代码证据。
+Intel GitHub CI 必须从待发布精确 tree 运行同一 `check`、package、verify、packaged E2E 和 release dry-run。按用户决策不购买 GitHub 付费计划：私有历史不公开，当前 tree 以 noreply 隐私审核快照推送到公开仓库并使用免费 Actions。公开快照 `ac6a6b3` 的 run `32631239054` 同 SHA 重试已完成项目检查、Intel x64 应用打包/检查与 packaged E2E；第一次 attempt 在包验证后遇到既有 Experiment UI 10 秒等待波动，重试通过且未更改 tree。历史私有仓库 0-step job 不作为代码证据。
 
 ## 6. 完成判定
 
 只有以下证据同时存在，M33、M34、M37 才能改为完成：
 
-- 两个不同目标 Harness 的真实、带授权模型行为 Run + session Chat 成功证据；
-- GUI/CLI 对同一冻结 Version 的真实 Multica create/update/get、同 hash、同远端身份与幂等重试证据；
+- 两个不同目标 Harness 的真实、带授权模型行为 Run + session Chat 成功证据（已完成 Codex simulation 阶段）；
+- GUI/CLI 对同一冻结 Version 的真实 Multica create/update/get、同 hash、同远端身份与幂等重试证据（已完成）；
 - arm64 与 Intel x64 最终包证据、Developer ID、公证/staple、无开发环境 Mac GUI+CLI+Multica 闭环；
 - 最终 HEAD 的完整本地检查和 GitHub CI 通过。
 

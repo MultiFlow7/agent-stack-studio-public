@@ -17,7 +17,7 @@
 - 未分类的 `STUDIO_CAPTURE_*`、`STUDIO_E2E_*`、`STUDIO_PACKAGED_*` 或 `STUDIO_SMOKE_*` 旁路；
 - 缺失、禁用、没有 Renderer 分支或不能从命令中心检索的一级导航。
 
-M32 当前审计目标为 5 个一级可达目的地、6 个输入提示和 2 组最终包验收控制，未处置项必须保持 0。源文件数由 `verify:local-acceptance` 每次动态输出。`fixture` 只允许位于测试树或最终 packaged E2E 输入；Main 中的验收控制只改变临时数据根、截图/导出目标或启动检查，不替换 Studio Core、SQLite、项目协议、Runtime 或 CLI。
+M32–M37 当前审计目标为 5 个一级可达目的地、7 个输入提示和 3 组最终包验收控制，未处置项必须保持 0。源文件数由 `verify:local-acceptance` 每次动态输出。`fixture` 只允许位于测试树或最终 packaged E2E 输入；Main 中的验收控制只改变临时数据根、截图/导出目标或启动检查，不替换 Studio Core、SQLite、项目协议、Runtime 或 CLI。外部打包验收额外要求用户明确设置 `STUDIO_PACKAGED_EXTERNAL_ACCEPTANCE=1`，因为它会创建私有 Multica 验收 Agent；不设置时必须拒绝运行。
 
 ## 3. 可访问性证据
 
