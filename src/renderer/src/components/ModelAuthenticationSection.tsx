@@ -590,6 +590,7 @@ export function ModelAuthenticationSection({
   const officialLoginButton = useRef<HTMLButtonElement>(null)
   const reuseLoginButton = useRef<HTMLButtonElement>(null)
   const verifyButton = useRef<HTMLButtonElement>(null)
+  const previousVerificationStatus = useRef(view.verification.status)
   const [modelDraft, setModelDraft] = useState(view.selectedModelId ?? '')
   const [modelInputError, setModelInputError] = useState<string>()
 
@@ -617,6 +618,14 @@ export function ModelAuthenticationSection({
     setModelDraft(view.selectedModelId ?? '')
     setModelInputError(undefined)
   }, [view.selectedModelId, view.selectedProviderId])
+
+  useEffect(() => {
+    const previousStatus = previousVerificationStatus.current
+    previousVerificationStatus.current = view.verification.status
+    if (previousStatus === 'verifying' && view.verification.status === 'cancelled') {
+      verifyButton.current?.focus()
+    }
+  }, [view.verification.status])
 
   const changeProvider = (event: ChangeEvent<HTMLSelectElement>) => {
     void onSelectProvider(event.target.value)
