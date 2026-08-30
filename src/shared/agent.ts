@@ -20,6 +20,10 @@ export const createAgentInputSchema = z.object({
   executionMode: executionModeSchema,
 })
 
+export const nativeAgentCreateInputSchema = createAgentInputSchema
+  .extend({ executionMode: z.literal('external-harness') })
+  .strict()
+
 export const updateAgentInputSchema = createAgentInputSchema.extend({
   id: z.uuid(),
 })

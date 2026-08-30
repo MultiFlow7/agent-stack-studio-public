@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { agentSchema, executionModeSchema } from './agent'
 import { capabilityIdSchema } from './component'
+import type { AgentProfile } from './agent-profile'
 
 export const stackDraftSchema = z.object({
   agentId: z.uuid(),
@@ -9,7 +10,7 @@ export const stackDraftSchema = z.object({
   updatedAt: z.iso.datetime(),
 })
 
-export const agentVersionSnapshotSchema = z.object({
+export const legacyAgentVersionSnapshotSchema = z.object({
   agent: agentSchema.pick({
     id: true,
     name: true,
@@ -31,6 +32,20 @@ export const agentVersionSnapshotSchema = z.object({
       .default([]),
   }),
 })
+
+export const projectAgentVersionReferenceSchema = z
+  .object({
+    kind: z.literal('project-reference'),
+    projectId: z.uuid(),
+    projectVersionId: z.uuid(),
+    projectRevision: z.number().int().nonnegative(),
+  })
+  .strict()
+
+export const agentVersionSnapshotSchema = z.union([
+  legacyAgentVersionSnapshotSchema,
+  projectAgentVersionReferenceSchema,
+])
 
 export const agentVersionSchema = z.object({
   id: z.uuid(),
@@ -57,4 +72,15 @@ export const agentDetailSchema = z.object({
 export type AgentDetail = z.infer<typeof agentDetailSchema>
 export type AgentLocation = z.infer<typeof agentLocationSchema>
 export type AgentVersion = z.infer<typeof agentVersionSchema>
+export type LegacyAgentVersionSnapshot = z.infer<typeof legacyAgentVersionSnapshotSchema>
+export type ProjectAgentVersionReference = z.infer<typeof projectAgentVersionReferenceSchema>
+export type MaterializedAgentVersion = Omit<AgentVersion, 'snapshot'> & {
+  snapshot: LegacyAgentVersionSnapshot & { profile?: AgentProfile }
+}
+
+export function isProjectAgentVersionReference(
+  snapshot: AgentVersion['snapshot'],
+): snapshot is ProjectAgentVersionReference {
+  return 'kind' in snapshot && snapshot.kind === 'project-reference'
+}
 export type StackDraft = z.infer<typeof stackDraftSchema>

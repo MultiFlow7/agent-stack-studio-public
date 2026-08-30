@@ -268,6 +268,146 @@ const migrations: Migration[] = [
       CREATE INDEX agents_archived_idx ON agents(archived_at);
     `,
   },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE agent_project_links (
+        agent_id TEXT PRIMARY KEY NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL UNIQUE,
+        project_path TEXT NOT NULL UNIQUE,
+        linked_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX agent_project_links_project_idx
+        ON agent_project_links(project_id);
+    `,
+  },
+  {
+    version: 10,
+    sql: `
+      CREATE TABLE provider_credential_bindings (
+        id TEXT PRIMARY KEY NOT NULL,
+        agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL,
+        harness_id TEXT NOT NULL CHECK (harness_id IN ('pi', 'openclaw', 'codex')),
+        provider_id TEXT NOT NULL CHECK (
+          length(provider_id) BETWEEN 2 AND 80 AND
+          provider_id NOT GLOB '*[^a-z0-9-]*' AND
+          substr(provider_id, 1, 1) GLOB '[a-z0-9]' AND
+          substr(provider_id, -1, 1) GLOB '[a-z0-9]' AND
+          instr(provider_id, '--') = 0
+        ),
+        auth_method TEXT NOT NULL CHECK (
+          auth_method IN ('api-key', 'official-login', 'existing-login')
+        ),
+        secret_reference_id TEXT REFERENCES secret_references(id) ON DELETE RESTRICT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (project_id, harness_id, provider_id),
+        CHECK (
+          (auth_method = 'api-key' AND secret_reference_id IS NOT NULL) OR
+          (auth_method IN ('official-login', 'existing-login') AND secret_reference_id IS NULL)
+        )
+      );
+
+      CREATE INDEX provider_credential_bindings_agent_idx
+        ON provider_credential_bindings(agent_id, project_id);
+      CREATE INDEX provider_credential_bindings_secret_idx
+        ON provider_credential_bindings(secret_reference_id);
+
+      CREATE TABLE model_verifications (
+        id TEXT PRIMARY KEY NOT NULL,
+        binding_id TEXT NOT NULL REFERENCES provider_credential_bindings(id) ON DELETE CASCADE,
+        configuration_hash TEXT NOT NULL CHECK (
+          length(configuration_hash) = 64 AND
+          configuration_hash NOT GLOB '*[^a-f0-9]*'
+        ),
+        status TEXT NOT NULL CHECK (
+          status IN (
+            'credential-valid',
+            'minimal-call-succeeded',
+            'credential-invalid',
+            'credential-expired',
+            'model-forbidden',
+            'network-failed',
+            'cancelled'
+          )
+        ),
+        failure_code TEXT CHECK (
+          failure_code IS NULL OR failure_code IN (
+            'stack-incompatible',
+            'harness-not-selected',
+            'harness-not-installed',
+            'harness-version-unsupported',
+            'provider-not-selected',
+            'model-not-selected',
+            'authentication-required',
+            'verification-required',
+            'credential-invalid',
+            'credential-expired',
+            'model-forbidden',
+            'network-failed',
+            'operation-cancelled',
+            'operation-timed-out',
+            'secret-leak-detected',
+            'harness-failed'
+          )
+        ),
+        checked_at TEXT NOT NULL,
+        expires_at TEXT,
+        UNIQUE (binding_id, configuration_hash)
+      );
+
+      CREATE INDEX model_verifications_binding_checked_idx
+        ON model_verifications(binding_id, checked_at DESC);
+    `,
+  },
+  {
+    version: 11,
+    sql: `
+      CREATE TABLE agent_setup_sessions (
+        id TEXT PRIMARY KEY NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('transient', 'saved')),
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        step TEXT NOT NULL CHECK (
+          step IN ('basics', 'harness', 'model', 'capabilities', 'review')
+        ),
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        harness_id TEXT CHECK (harness_id IS NULL OR harness_id IN ('pi', 'openclaw', 'codex')),
+        selection_json TEXT,
+        profile_json TEXT NOT NULL,
+        authentication_json TEXT,
+        verification_json TEXT NOT NULL,
+        keychain_service TEXT,
+        keychain_account TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (
+          (keychain_service IS NULL AND keychain_account IS NULL) OR
+          (keychain_service IS NOT NULL AND keychain_account IS NOT NULL)
+        )
+      );
+
+      CREATE INDEX agent_setup_sessions_status_updated_idx
+        ON agent_setup_sessions(status, updated_at DESC);
+    `,
+  },
+  {
+    version: 12,
+    sql: `
+      ALTER TABLE agent_setup_sessions
+        ADD COLUMN capability_selections_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
+  {
+    version: 13,
+    sql: `
+      ALTER TABLE agent_setup_sessions
+        ADD COLUMN mcp_validations_json TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 export const CURRENT_SCHEMA_VERSION = migrations.at(-1)?.version ?? 0

@@ -81,10 +81,10 @@ describe('CapabilityView', () => {
     render(<CapabilityView agentId={agentId} onOpenStack={vi.fn()} />)
 
     expect(await screen.findByRole('heading', { name: '能力与实现来源' })).toBeVisible()
-    expect(screen.getByText('Runtime Plan 已就绪')).toBeVisible()
+    expect(screen.getByText('Stack/兼容性 就绪')).toBeVisible()
     expect(screen.getByText('执行控制')).toBeVisible()
     expect(screen.getAllByText('本地 Harness X').length).toBeGreaterThan(0)
-    await user.click(screen.getAllByText(/个 Provider/)[0])
+    await user.click(screen.getAllByText(/个候选实现/)[0])
     expect(screen.getAllByText('已验证兼容').length).toBeGreaterThan(0)
   })
 

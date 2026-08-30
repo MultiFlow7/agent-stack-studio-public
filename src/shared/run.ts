@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { executionModeSchema } from './agent'
 import { driftCheckSchema } from './experiment'
+import { harnessIdSchema } from './native-agent'
 import { runtimePlanSchema } from './runtime-plan'
 
 export const runStatuses = [
@@ -201,6 +202,10 @@ export const runHistorySchema = z
 export const runHistoryDetailSchema = runDetailSchema.extend({ history: runHistorySchema }).strict()
 
 export const runListSchema = z.array(runRecordSchema)
+export const runExecutionRouteSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('native'), harnessId: harnessIdSchema }).strict(),
+  z.object({ kind: z.literal('legacy') }).strict(),
+])
 export const startRunInputSchema = z
   .object({
     agentId: z.uuid(),
@@ -210,6 +215,7 @@ export const startRunInputSchema = z
   })
   .strict()
 export const runIdInputSchema = z.object({ id: z.uuid() }).strict()
+export const runRouteInputSchema = z.object({ agentId: z.uuid() }).strict()
 export const runListInputSchema = z.object({ agentId: z.uuid().nullable() }).strict()
 
 export const runtimeRunEventSchema = runEventSchema.pick({
@@ -235,8 +241,8 @@ export const runtimeChildMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('runtime-ready'), cordisVersion: z.literal('4.0.0-rc.8') }).strict(),
   z.object({ type: z.literal('run-event'), event: runtimeRunEventSchema }).strict(),
   z.object({ type: z.literal('run-completed'), result: runtimeRunResultSchema }).strict(),
-  z.object({ type: z.literal('run-cancelled'), message: z.string().min(1) }).strict(),
-  z.object({ type: z.literal('runtime-error'), message: z.string().min(1) }).strict(),
+  z.object({ type: z.literal('run-cancelled'), message: z.string().min(1).max(1_000) }).strict(),
+  z.object({ type: z.literal('runtime-error'), message: z.string().min(1).max(1_000) }).strict(),
 ])
 
 export type ExecutionDescription = z.infer<typeof executionDescriptionSchema>
@@ -247,6 +253,7 @@ export type RunArtifact = z.infer<typeof runArtifactSchema>
 export type RunDetail = z.infer<typeof runDetailSchema>
 export type RunHistory = z.infer<typeof runHistorySchema>
 export type RunHistoryDetail = z.infer<typeof runHistoryDetailSchema>
+export type RunExecutionRoute = z.infer<typeof runExecutionRouteSchema>
 export type StartRunInput = z.infer<typeof startRunInputSchema>
 export type RuntimeRunEvent = z.infer<typeof runtimeRunEventSchema>
 export type RuntimeRunResult = z.infer<typeof runtimeRunResultSchema>

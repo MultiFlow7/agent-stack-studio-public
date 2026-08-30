@@ -24,4 +24,14 @@ describe('Component Contract v1', () => {
       'Adapter 必须声明 Runtime Adapter',
     )
   })
+
+  it('rejects credentialed Descriptor references before they can enter project storage', () => {
+    const descriptor = structuredClone(builtInComponents[0].descriptor)
+    descriptor.source.location = 'https://user:secret@example.test/component?token=value'
+
+    expect(() => componentDescriptorSchema.parse(descriptor)).toThrow('不得包含凭证')
+
+    descriptor.source.location = 'local-package token=raw-secret'
+    expect(() => componentDescriptorSchema.parse(descriptor)).toThrow('不得包含凭证')
+  })
 })

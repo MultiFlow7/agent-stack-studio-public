@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ExecutionMode } from '../../shared/agent'
 import type { RunManifest, RuntimeRunEvent } from '../../shared/run'
+import { fixtureAgentId } from '../../test/run-fixture'
 import { AgentService } from '../agents/agent-service'
 import { builtInComponents } from '../components/built-in-components'
 import { ComponentService } from '../components/component-service'
@@ -110,6 +111,27 @@ async function fixture(
 }
 
 describe('RunService', () => {
+  it('rejects legacy runs:start for a Native Harness Agent with a recoverable action', () => {
+    const nativeAgents = {
+      getActive: vi.fn(() => ({ agent: { executionMode: 'external-harness' }, versions: [] })),
+      nativeHarness: vi.fn(() => 'pi'),
+    } as unknown as AgentService
+    const service = new RunService({
+      agents: nativeAgents,
+      components: {} as ComponentService,
+      repository: {} as RunRepository,
+      runtime: new FakeRuntime(),
+      artifacts: {} as ArtifactService,
+      electronVersion: '43.4.1',
+      architecture: 'arm64',
+    })
+
+    expect(service.route(fixtureAgentId)).toEqual({ kind: 'native', harnessId: 'pi' })
+    expect(() =>
+      service.start({ agentId: fixtureAgentId, prompt: '不得走旧路由', timeoutMs: 5_000 }),
+    ).toThrow('Pi Agent 使用 Native Harness 单次运行')
+  })
+
   it('runs an immutable ready Stack and persists the output Artifact', async () => {
     const runtime = new FakeRuntime()
     const resources = await fixture(runtime)
@@ -187,11 +209,13 @@ describe('RunService', () => {
     await vi.waitFor(() => expect(resources.runRepository.get(run.id).status).toBe('running'))
 
     resources.service.cancel(run.id)
+    resources.service.cancel(run.id)
     await vi.waitFor(() => expect(resources.runRepository.get(run.id).status).toBe('cancelled'))
     const detail = resources.service.get(run.id)
     expect(detail.events.map(({ type }) => type)).toEqual(
       expect.arrayContaining(['cancel-requested', 'cancelled']),
     )
+    expect(detail.events.filter(({ type }) => type === 'cancel-requested')).toHaveLength(1)
     expect(detail.artifacts).toEqual([])
     resources.runRepository.close()
     resources.componentRepository.close()

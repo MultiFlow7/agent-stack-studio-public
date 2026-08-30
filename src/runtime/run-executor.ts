@@ -93,24 +93,23 @@ export async function executeBuiltInRun(
 
   const startedAt = Date.now()
   const steps = executionSteps(manifest)
-  for (let index = 0; index < steps.length; index += 1) {
+  for (const [index, step] of steps.entries()) {
     if (signal.aborted) throw new DOMException('Run cancelled.', 'AbortError')
-    const step = steps[index]
     emit({
       type: 'step-started',
       message: step,
       details: { step: index + 1, total: steps.length },
     })
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(resolve, stepDelayMs)
-      signal.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timeout)
-          reject(new DOMException('Run cancelled.', 'AbortError'))
-        },
-        { once: true },
-      )
+      const onAbort = () => {
+        clearTimeout(timeout)
+        reject(new DOMException('Run cancelled.', 'AbortError'))
+      }
+      const timeout = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }, stepDelayMs)
+      signal.addEventListener('abort', onAbort, { once: true })
     })
     emit({
       type: 'step-completed',

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu, net, screen, session } from 'electron'
-import { writeFile } from 'node:fs/promises'
+import { readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ipcChannels } from '../shared/ipc'
@@ -7,7 +7,7 @@ import { AgentService } from './agents/agent-service'
 import { ComponentService } from './components/component-service'
 import { ImportService } from './import/import-service'
 import { ExperimentService } from './experiments/experiment-service'
-import { MulticaContractTestPublisher } from './connectors/multica-contract-test-publisher'
+import { MulticaCliPublisher } from './connectors/multica-cli-publisher'
 import { registerAgentIpc } from './ipc/register-agent-ipc'
 import { AgentStatusService } from './agents/agent-status-service'
 import { ComponentCatalogService } from './components/component-catalog-service'
@@ -31,6 +31,8 @@ import { WorkspaceService } from './workspace/workspace-service'
 import { DataMaintenanceService } from './maintenance/data-maintenance-service'
 import { ProjectIndexRepository } from './persistence/project-index-repository'
 import { StudioProjectService } from './projects/studio-project-service'
+import { ChildProcessCompatibilityRuntime } from '../core/trusted-compatibility-runtime'
+import { migrateLegacyPortableFacts } from './projects/legacy-portable-migration'
 import { registerStudioProjectIpc } from './ipc/register-studio-project-ipc'
 import { GithubDiscoveryProvider } from '../adapters/github/github-discovery-provider'
 import { DiscoveryService } from './discovery/discovery-service'
@@ -47,8 +49,29 @@ import {
 } from './preferences/application-preferences-service'
 import { registerPreferencesIpc } from './ipc/register-preferences-ipc'
 import { defaultApplicationPreferences } from '../shared/preferences'
+import { CommandCenterService } from './command-center/command-center-service'
+import { registerCommandCenterIpc } from './ipc/register-command-center-ipc'
+import { sanitizedErrorMessage } from '../shared/sensitive-data'
+import { HostDriverRegistry } from '../adapters/harness/host-driver-registry'
+import { NativeAgentCore } from '../core/native-agent-core'
+import { StudioCore } from '../core/studio-core'
+import { NativeAgentService } from './native/native-agent-service'
+import { registerNativeAgentIpc } from './ipc/register-native-agent-ipc'
+import { CustomizationService } from './customization/customization-service'
+import { registerCustomizationIpc } from './ipc/register-customization-ipc'
+import { StudioDoctorService } from './doctor/studio-doctor-service'
+import { registerDoctorIpc } from './ipc/register-doctor-ipc'
+import { ModelAuthService } from './model-auth/model-auth-service'
+import { NativeModelAuthGateway } from './model-auth/native-model-auth-gateway'
+import { ModelAuthController } from './model-auth/model-auth-controller'
+import { registerModelAuthIpc } from './ipc/register-model-auth-ipc'
+import { AgentSetupRepository } from './persistence/agent-setup-repository'
+import { AgentSetupService } from './agents/agent-setup-service'
+import { McpRuntime } from '../adapters/mcp/mcp-runtime'
+import { registerAgentSetupIpc } from './ipc/register-agent-setup-ipc'
 
 app.enableSandbox()
+process.umask(0o077)
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const captureUserDataPath = process.env.STUDIO_CAPTURE_USER_DATA_PATH
@@ -58,6 +81,8 @@ if (
 ) {
   app.setPath('userData', captureUserDataPath)
 }
+const ownsSingleInstanceLock = app.requestSingleInstanceLock()
+if (!ownsSingleInstanceLock) app.quit()
 let mainWindow: BrowserWindow | undefined
 let repository: AgentRepository | undefined
 let componentRepository: ComponentRepository | undefined
@@ -65,6 +90,7 @@ let runRepository: RunRepository | undefined
 let experimentRepository: ExperimentRepository | undefined
 let publishRepository: PublishRepository | undefined
 let projectIndexRepository: ProjectIndexRepository | undefined
+let agentSetupRepository: AgentSetupRepository | undefined
 let unregisterIpc: (() => void) | undefined
 let runtime: RuntimeController | undefined
 let experimentService: ExperimentService | undefined
@@ -203,10 +229,15 @@ function createWindow(): BrowserWindow {
     window.show()
   })
   const captureView = process.env.STUDIO_CAPTURE_VIEW
-  void window.loadFile(
-    path.join(currentDirectory, '../renderer/index.html'),
-    captureView ? { hash: captureView } : undefined,
-  )
+  void window
+    .loadFile(
+      path.join(currentDirectory, '../renderer/index.html'),
+      captureView ? { hash: captureView } : undefined,
+    )
+    .catch(() => {
+      console.error('Agent Stack Studio 无法载入 Renderer。')
+      app.quit()
+    })
   return window
 }
 
@@ -236,22 +267,101 @@ async function bootstrap(): Promise<void> {
   const logger = new AppLogger(path.join(userData, 'logs'))
   repository = new AgentRepository(databasePath)
   componentRepository = new ComponentRepository(databasePath)
+  const portableMigration = await migrateLegacyPortableFacts({
+    agents: repository,
+    components: componentRepository,
+    workspacesRoot: workspacesPath,
+  })
+  if (portableMigration.failed.length) {
+    throw new Error(
+      `历史便携事实迁移未完成：${portableMigration.failed
+        .map(({ agentId, message }) => `${agentId}: ${message}`)
+        .join('；')}`,
+    )
+  }
   runRepository = new RunRepository(databasePath)
   experimentRepository = new ExperimentRepository(databasePath)
   publishRepository = new PublishRepository(databasePath)
   projectIndexRepository = new ProjectIndexRepository(databasePath)
+  agentSetupRepository = new AgentSetupRepository(databasePath)
   applicationPreferences = new ApplicationPreferencesService(projectIndexRepository)
   const components = new ComponentService(componentRepository)
-  const agents = new AgentService(repository, new WorkspaceService(workspacesPath))
+  const workspaces = new WorkspaceService(workspacesPath)
+  const agents = new AgentService(repository, workspaces)
   const componentCatalog = new ComponentCatalogService({ agents, components })
+  const keychain = new MacOsKeychainAdapter()
+  const secureInputPrompt = new MacOsSecureInputPrompt()
+  const secrets = new SecretService({ repository, keychain })
   const unregisterSecretIpc = registerSecretIpc({
-    secrets: new SecretService({ repository, keychain: new MacOsKeychainAdapter() }),
-    prompt: new MacOsSecureInputPrompt(),
+    secrets,
+    prompt: secureInputPrompt,
   })
   const unregisterComponentIpc = registerComponentIpc({
     components,
     catalog: componentCatalog,
   })
+  const cliPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'bin/studio')
+    : path.join(currentDirectory, '../cli/studio.mjs')
+  const studioCore = new StudioCore()
+  studioProjectService = new StudioProjectService({
+    core: studioCore,
+    index: projectIndexRepository,
+    components,
+    agents: repository,
+    cliPath,
+    compatibilityRuntime: new ChildProcessCompatibilityRuntime(
+      path.join(currentDirectory, '../runtime/compatibility-validation.mjs'),
+    ),
+  })
+  components.connectProject(studioProjectService)
+  agents.connectProject(studioProjectService)
+  componentCatalog.connectProject(studioProjectService)
+  if (launchOptions.projectPath) await studioProjectService.open(launchOptions.projectPath)
+  const hostDrivers = new HostDriverRegistry()
+  const modelAuthGateway = new NativeModelAuthGateway({ drivers: hostDrivers })
+  const customization = new CustomizationService({
+    core: studioCore,
+    fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+  })
+  const mcpRuntime = new McpRuntime({
+    fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
+  })
+  const agentSetups = new AgentSetupService({
+    setups: agentSetupRepository,
+    agents: repository,
+    workspaces,
+    projects: studioProjectService,
+    core: studioCore,
+    gateway: modelAuthGateway,
+    keychain,
+    setupRoot: path.join(userData, 'setup-sessions'),
+    capabilityInstaller: customization,
+    mcp: mcpRuntime,
+  })
+  await agentSetups.cleanupTransient()
+  const unregisterAgentSetupIpc = registerAgentSetupIpc({
+    setups: agentSetups,
+    prompt: secureInputPrompt,
+  })
+  const modelAuthService = new ModelAuthService({
+    repository,
+    secrets,
+    projects: studioProjectService,
+    gateway: modelAuthGateway,
+  })
+  const modelAuth = new ModelAuthController({
+    service: modelAuthService,
+    projects: studioProjectService,
+    gateway: modelAuthGateway,
+  })
+  studioProjectService.connectModelAuth(modelAuth)
+  const unregisterModelAuthIpc = registerModelAuthIpc({
+    modelAuth,
+    prompt: secureInputPrompt,
+  })
+  const nativeAgentCore = new NativeAgentCore(hostDrivers, undefined, modelAuthService, mcpRuntime)
+  agents.connectNativeAgent(nativeAgentCore)
   runtime = new RuntimeController(path.join(currentDirectory, '../runtime/index.mjs'), logger)
   const runs = new RunService({
     agents,
@@ -279,12 +389,15 @@ async function bootstrap(): Promise<void> {
     experiments,
     getWindow: () => mainWindow,
   })
+  const multicaPublisher = new MulticaCliPublisher()
   const publishing = new PublishService({
     agents,
     components,
     runs,
     repository: publishRepository,
-    publisher: new MulticaContractTestPublisher(),
+    publisher: multicaPublisher,
+    nativeVerification: (agentId, agentVersionId) =>
+      studioProjectService!.nativeVersionVerified(agentId, agentVersionId),
   })
   const unregisterPublishIpc = registerPublishIpc(publishing)
   const agentStatus = new AgentStatusService({
@@ -304,19 +417,44 @@ async function bootstrap(): Promise<void> {
     maintenance,
     getWindow: () => mainWindow,
     scheduleRestart: () => {
-      app.relaunch()
+      if (process.env.STUDIO_PACKAGED_E2E !== '1') app.relaunch()
       app.quit()
     },
+    selectBackupDestination:
+      process.env.STUDIO_PACKAGED_E2E === '1'
+        ? () => Promise.resolve(path.join(userData, 'e2e-backups'))
+        : undefined,
+    selectRestoreSource:
+      process.env.STUDIO_PACKAGED_E2E === '1'
+        ? async () => {
+            const backupParent = path.join(userData, 'e2e-backups')
+            const entries = await readdir(backupParent, { withFileTypes: true }).catch(() => [])
+            const backups = entries.filter(
+              (entry) => entry.isDirectory() && entry.name.startsWith('Agent Stack Studio Backup '),
+            )
+            if (backups.length !== 1) {
+              throw new Error('Packaged E2E 需要唯一可验证备份。')
+            }
+            return path.join(backupParent, backups[0].name)
+          }
+        : undefined,
   })
-  const cliPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked/dist/cli/studio.mjs')
-    : path.join(currentDirectory, '../cli/studio.mjs')
-  studioProjectService = new StudioProjectService({
-    index: projectIndexRepository,
-    components,
-    cliPath,
-  })
-  if (launchOptions.projectPath) await studioProjectService.open(launchOptions.projectPath)
+  const unregisterDoctorIpc = registerDoctorIpc(
+    new StudioDoctorService({
+      application: {
+        version: app.getVersion(),
+        platform: process.platform,
+        architecture: process.arch,
+        packaged: app.isPackaged,
+        bundledCliRuntime: app.isPackaged && Boolean(process.versions.electron),
+      },
+      cliPath,
+      maintenance,
+      projects: studioProjectService,
+      nativeAgent: nativeAgentCore,
+      publisher: multicaPublisher,
+    }),
+  )
   const unregisterStudioProjectIpc = registerStudioProjectIpc({
     projects: studioProjectService,
     getWindow: () => mainWindow,
@@ -325,24 +463,49 @@ async function bootstrap(): Promise<void> {
         ? () => Promise.resolve(path.resolve(process.env.STUDIO_E2E_PROJECT_EXPORT_PATH!))
         : undefined,
   })
+  const unregisterNativeAgentIpc = registerNativeAgentIpc(
+    new NativeAgentService({
+      core: nativeAgentCore,
+      projects: studioProjectService,
+    }),
+  )
   discoveryService = new DiscoveryService({
     provider: new GithubDiscoveryProvider({
       fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
     }),
   })
   const unregisterDiscoveryIpc = registerDiscoveryIpc(discoveryService)
+  const unregisterCustomizationIpc = registerCustomizationIpc({
+    customization,
+    projects: studioProjectService,
+  })
   const unregisterPreferencesIpc = registerPreferencesIpc(applicationPreferences)
+  const unregisterCommandCenterIpc = registerCommandCenterIpc(
+    new CommandCenterService({
+      projects: studioProjectService,
+      agents: agentStatus,
+      components: componentCatalog,
+      runs,
+      experiments,
+    }),
+  )
   unregisterIpc = () => {
     unregisterAgentIpc()
+    unregisterAgentSetupIpc()
     unregisterSecretIpc()
+    unregisterModelAuthIpc()
     unregisterComponentIpc()
     unregisterRunIpc()
     unregisterExperimentIpc()
     unregisterPublishIpc()
     unregisterMaintenanceIpc()
+    unregisterDoctorIpc()
     unregisterStudioProjectIpc()
+    unregisterNativeAgentIpc()
     unregisterDiscoveryIpc()
+    unregisterCustomizationIpc()
     unregisterPreferencesIpc()
+    unregisterCommandCenterIpc()
   }
 
   createApplicationMenu()
@@ -359,6 +522,7 @@ async function bootstrap(): Promise<void> {
           void mainWindow?.webContents
             .capturePage()
             .then((image) => writeFile(capturePath, image.toPNG()))
+            .catch(() => console.error('无法生成本地验收截图。'))
             .finally(() => app.quit())
         },
         Number(process.env.STUDIO_CAPTURE_DELAY_MS ?? 1_000),
@@ -369,13 +533,22 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-app
-  .whenReady()
-  .then(bootstrap)
-  .catch((error: unknown) => {
-    console.error(error)
-    app.exit(1)
-  })
+if (ownsSingleInstanceLock) {
+  app
+    .whenReady()
+    .then(bootstrap)
+    .catch((error: unknown) => {
+      console.error(sanitizedErrorMessage(error, 'Agent Stack Studio 启动失败。'))
+      app.exit(1)
+    })
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
@@ -391,7 +564,9 @@ app.on('before-quit', (event) => {
   void (async () => {
     await currentExperiments?.stopAll()
     await currentRuntime.stopAll()
-  })().finally(() => app.quit())
+  })()
+    .catch(() => console.warn('退出时本地 Runtime 清理未完整结束。'))
+    .finally(() => app.quit())
 })
 
 app.on('will-quit', () => {
@@ -405,5 +580,6 @@ app.on('will-quit', () => {
   studioProjectService?.close()
   discoveryService?.close()
   projectIndexRepository?.close()
+  agentSetupRepository?.close()
   applicationPreferences = undefined
 })

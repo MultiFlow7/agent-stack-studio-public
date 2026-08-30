@@ -21,6 +21,9 @@ export interface SecureInputCommandResult {
 
 export type SecureInputCommandRunner = (args: string[]) => Promise<SecureInputCommandResult>
 
+const SECURE_INPUT_TIMEOUT_MS = 5 * 60_000
+const SECURE_INPUT_OUTPUT_LIMIT_BYTES = 65_536
+
 function runOsascript(args: string[]): Promise<SecureInputCommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/osascript', args, {
@@ -29,17 +32,39 @@ function runOsascript(args: string[]): Promise<SecureInputCommandResult> {
     })
     let stdout = ''
     let stderr = ''
+    let outputBytes = 0
+    let settled = false
+    const finish = (result: SecureInputCommandResult | Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (result instanceof Error) reject(result)
+      else resolve(result)
+    }
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      finish(new Error('macOS 安全输入对话框超时。'))
+    }, SECURE_INPUT_TIMEOUT_MS)
+    const append = (current: string, chunk: string): string => {
+      outputBytes += Buffer.byteLength(chunk)
+      if (outputBytes > SECURE_INPUT_OUTPUT_LIMIT_BYTES) {
+        child.kill('SIGKILL')
+        finish(new Error('macOS 安全输入返回内容超过安全上限。'))
+        return current
+      }
+      return current + chunk
+    }
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
+      stdout = append(stdout, chunk)
     })
     child.stderr.on('data', (chunk: string) => {
-      stderr += chunk
+      stderr = append(stderr, chunk)
     })
-    child.once('error', reject)
+    child.once('error', (error) => finish(error))
     child.once('close', (exitCode) => {
-      resolve({ exitCode: exitCode ?? 1, stdout, stderr })
+      finish({ exitCode: exitCode ?? 1, stdout, stderr })
     })
   })
 }

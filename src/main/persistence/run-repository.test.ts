@@ -8,6 +8,7 @@ import { buildRunManifest } from '../domain/run-manifest'
 import { AgentRepository } from './agent-repository'
 import { ComponentRepository } from './component-repository'
 import { RunRepository } from './run-repository'
+import { CURRENT_SCHEMA_VERSION } from './migrations'
 
 const temporaryDirectories: string[] = []
 
@@ -46,16 +47,9 @@ describe('RunRepository', () => {
     const migrated = new Database(file)
     expect(
       migrated.prepare('SELECT version FROM schema_migrations ORDER BY version').all(),
-    ).toEqual([
-      { version: 1 },
-      { version: 2 },
-      { version: 3 },
-      { version: 4 },
-      { version: 5 },
-      { version: 6 },
-      { version: 7 },
-      { version: 8 },
-    ])
+    ).toEqual(
+      Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({ version: index + 1 })),
+    )
     expect(
       migrated
         .prepare(

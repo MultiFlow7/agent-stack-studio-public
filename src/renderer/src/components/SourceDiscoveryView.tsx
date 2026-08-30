@@ -8,6 +8,7 @@ import {
   MagnifyingGlass,
   ShieldCheck,
   Star,
+  Wrench,
   X,
 } from '@phosphor-icons/react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
@@ -16,6 +17,14 @@ import type {
   SourceHandoff,
   SourceSearchResult,
 } from '../../../shared/source-discovery'
+import type {
+  CustomizationInstallResult,
+  CustomizationRecipeStatus,
+  CustomizationRecognition,
+  CustomizationUninstallResult,
+  CustomizationTask,
+} from '../../../shared/customization'
+import type { HarnessId } from '../../../shared/native-agent'
 
 type SearchStatus = 'idle' | 'loading' | 'ready' | 'error' | 'cancelled'
 type SearchFailureKind = 'validation' | 'network' | 'timeout' | 'rate-limit' | 'provider'
@@ -89,6 +98,20 @@ export function SourceDiscoveryView() {
   const [handoffError, setHandoffError] = useState<string>()
   const [handoffLoading, setHandoffLoading] = useState<string>()
   const [notice, setNotice] = useState<string>()
+  const [customSource, setCustomSource] = useState('')
+  const [customHarness, setCustomHarness] = useState<HarnessId>('openclaw')
+  const [customStatus, setCustomStatus] = useState<
+    'idle' | 'recognizing' | 'ready' | 'task' | 'installing' | 'installed' | 'error' | 'cancelled'
+  >('idle')
+  const [recognition, setRecognition] = useState<CustomizationRecognition>()
+  const [customTask, setCustomTask] = useState<CustomizationTask>()
+  const [installResult, setInstallResult] = useState<CustomizationInstallResult>()
+  const [uninstallResult, setUninstallResult] = useState<CustomizationUninstallResult>()
+  const [recipeStatuses, setRecipeStatuses] = useState<CustomizationRecipeStatus[]>([])
+  const [selectedRecipeId, setSelectedRecipeId] = useState('')
+  const [lastSnapshotId, setLastSnapshotId] = useState<string>()
+  const [customError, setCustomError] = useState<string>()
+  const [installConfirmed, setInstallConfirmed] = useState(false)
   const operation = useRef(0)
   const searchInput = useRef<HTMLInputElement>(null)
 
@@ -96,6 +119,14 @@ export function SourceDiscoveryView() {
     if (!result) return 1
     return Math.max(1, Math.min(10, Math.ceil(result.totalCount / result.perPage)))
   }, [result])
+  const selectedRecipe = useMemo(
+    () => recognition?.availableRecipes.find(({ id }) => id === selectedRecipeId),
+    [recognition, selectedRecipeId],
+  )
+  const selectedRecipeStatus = useMemo(
+    () => recipeStatuses.find(({ recipe }) => recipe.id === selectedRecipeId),
+    [recipeStatuses, selectedRecipeId],
+  )
 
   async function search(page = 1): Promise<void> {
     const normalized = query.trim()
@@ -170,10 +201,163 @@ export function SourceDiscoveryView() {
     }
   }
 
+  async function recognizeCustomization(): Promise<void> {
+    const api = window.studio.customization
+    if (!api) return
+    const source = customSource.trim()
+    if (!source) {
+      setCustomStatus('error')
+      setCustomError('请输入 GitHub URL、owner/repo 或本地目录。')
+      return
+    }
+    setCustomStatus('recognizing')
+    setCustomError(undefined)
+    setRecognition(undefined)
+    setCustomTask(undefined)
+    setInstallResult(undefined)
+    setUninstallResult(undefined)
+    setRecipeStatuses([])
+    setSelectedRecipeId('')
+    setInstallConfirmed(false)
+    try {
+      const result = await api.recognize({ source, harnessId: customHarness })
+      setRecognition(result)
+      setSelectedRecipeId(result.recipe?.id ?? '')
+      setCustomStatus('ready')
+    } catch (failure) {
+      setCustomStatus('error')
+      setCustomError(failure instanceof Error ? failure.message : '无法识别来源。')
+    }
+  }
+
+  async function generateCustomizationTask(): Promise<void> {
+    const api = window.studio.customization
+    if (!api) return
+    setCustomStatus('recognizing')
+    setCustomError(undefined)
+    try {
+      const task = await api.task({ source: customSource.trim(), harnessId: customHarness })
+      setRecognition(task.recognition)
+      setCustomTask(task)
+      setCustomStatus('task')
+    } catch (failure) {
+      setCustomStatus('error')
+      setCustomError(failure instanceof Error ? failure.message : '无法生成定制任务。')
+    }
+  }
+
+  async function refreshRecipeStatuses(): Promise<void> {
+    const api = window.studio.customization
+    if (!api) return
+    setCustomError(undefined)
+    try {
+      setRecipeStatuses(await api.check({ harnessId: customHarness }))
+    } catch (failure) {
+      setCustomError(failure instanceof Error ? failure.message : '无法检查安装状态。')
+    }
+  }
+
+  async function installKnownRecipe(operation: 'install' | 'update'): Promise<void> {
+    const api = window.studio.customization
+    const recipe = selectedRecipe
+    const source = recognition?.source
+    if (!api || !recipe || !source || !installConfirmed) return
+    setCustomStatus('installing')
+    setCustomError(undefined)
+    try {
+      const current = await window.studio.studioProject?.current()
+      if (!current?.project) throw new Error('请先打开 Agent Stack 项目。')
+      const installed = await api[operation]({
+        recipeId: recipe.id,
+        harnessId: customHarness,
+        ...(source.kind === 'local' ? { localSourcePath: source.path } : {}),
+        expectedRevision: current.project.revision,
+        confirmed: true,
+      })
+      setInstallResult(installed)
+      setUninstallResult(undefined)
+      setLastSnapshotId(installed.snapshotId)
+      setInstallConfirmed(false)
+      setCustomStatus('installed')
+      await refreshRecipeStatuses()
+    } catch (failure) {
+      setCustomStatus('error')
+      setCustomError(failure instanceof Error ? failure.message : '无法安装固定方案。')
+    }
+  }
+
+  async function smokeKnownRecipe(): Promise<void> {
+    const api = window.studio.customization
+    if (!api || !selectedRecipeId) return
+    setCustomError(undefined)
+    try {
+      const result = await api.smoke({ recipeId: selectedRecipeId, harnessId: customHarness })
+      setNotice(`内容接线 Smoke Test 通过：${result.level}。`)
+    } catch (failure) {
+      setCustomError(failure instanceof Error ? failure.message : 'Smoke Test 未通过。')
+    }
+  }
+
+  async function uninstallKnownRecipe(): Promise<void> {
+    const api = window.studio.customization
+    if (!api || !selectedRecipeId || !installConfirmed) return
+    setCustomStatus('installing')
+    setCustomError(undefined)
+    try {
+      const current = await window.studio.studioProject?.current()
+      if (!current?.project) throw new Error('请先打开 Agent Stack 项目。')
+      const result = await api.uninstall({
+        recipeId: selectedRecipeId,
+        harnessId: customHarness,
+        expectedRevision: current.project.revision,
+        confirmed: true,
+      })
+      setUninstallResult(result)
+      setInstallResult(undefined)
+      if (result.snapshotId) setLastSnapshotId(result.snapshotId)
+      setInstallConfirmed(false)
+      setCustomStatus('installed')
+      await refreshRecipeStatuses()
+    } catch (failure) {
+      setCustomStatus('error')
+      setCustomError(failure instanceof Error ? failure.message : '无法卸载固定方案。')
+    }
+  }
+
+  async function restoreLastSnapshot(): Promise<void> {
+    const api = window.studio.customization
+    if (!api || !lastSnapshotId || !installConfirmed) return
+    setCustomStatus('installing')
+    setCustomError(undefined)
+    try {
+      const current = await window.studio.studioProject?.current()
+      if (!current?.project) throw new Error('请先打开 Agent Stack 项目。')
+      await api.restore({
+        snapshotId: lastSnapshotId,
+        expectedRevision: current.project.revision,
+        confirmed: true,
+      })
+      setInstallConfirmed(false)
+      setCustomStatus('installed')
+      setNotice('安装快照已恢复。')
+      await refreshRecipeStatuses()
+    } catch (failure) {
+      setCustomStatus('error')
+      setCustomError(failure instanceof Error ? failure.message : '无法恢复安装快照。')
+    }
+  }
+
+  async function cancelInstall(): Promise<void> {
+    await window.studio.customization?.cancel().catch(() => undefined)
+    setCustomStatus('cancelled')
+    setCustomError(undefined)
+  }
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (status === 'loading') void cancelSearch()
+      if (customStatus === 'installing') void cancelInstall()
+      else if (status === 'loading') void cancelSearch()
       else if (handoff) setHandoff(undefined)
     }
     window.addEventListener('keydown', onKeyDown)
@@ -212,6 +396,262 @@ export function SourceDiscoveryView() {
           </span>
         </div>
       </header>
+
+      {window.studio.customization ? (
+        <section className="customization-lab" aria-labelledby="customization-title">
+          <header>
+            <div>
+              <span className="discovery-kicker">
+                <Wrench aria-hidden="true" size={18} />
+                M36 固定方案
+              </span>
+              <h2 id="customization-title">识别已知方案或生成定制任务</h2>
+              <p>GitHub URL 和本地目录都只读检查；未知来源不会被执行。</p>
+            </div>
+            <span className="status-chip">不执行来源代码</span>
+          </header>
+          <div className="customization-form">
+            <label className="field customization-source-field">
+              <span>来源</span>
+              <input
+                disabled={customStatus === 'recognizing' || customStatus === 'installing'}
+                onChange={(event) => setCustomSource(event.target.value)}
+                placeholder="https://github.com/owner/repo 或 /path/to/local"
+                value={customSource}
+              />
+            </label>
+            <label className="field">
+              <span>目标 Harness</span>
+              <select
+                disabled={customStatus === 'recognizing' || customStatus === 'installing'}
+                onChange={(event) => setCustomHarness(event.target.value as HarnessId)}
+                value={customHarness}
+              >
+                <option value="openclaw">OpenClaw</option>
+                <option value="pi">Pi</option>
+                <option value="codex">Codex CLI</option>
+              </select>
+            </label>
+            <button
+              className="button button--secondary"
+              disabled={customStatus === 'recognizing' || customStatus === 'installing'}
+              onClick={() => void recognizeCustomization()}
+              type="button"
+            >
+              {customStatus === 'recognizing' ? '正在识别…' : '静态识别'}
+            </button>
+          </div>
+
+          {customError ? (
+            <div className="inline-feedback inline-feedback--error" role="alert">
+              {customError}
+            </div>
+          ) : null}
+          {customStatus === 'cancelled' ? (
+            <div className="inline-feedback">安装已取消；如果尚未写入，项目保持不变。</div>
+          ) : null}
+
+          {recognition ? (
+            <div className={`customization-result customization-result--${recognition.status}`}>
+              <div>
+                <strong>{recognition.status === 'known' ? '命中固定安装方案' : '未知来源'}</strong>
+                <p>{recognition.safetyNotice}</p>
+              </div>
+              {recognition.recipe ? (
+                <dl>
+                  {recognition.availableRecipes.length > 1 ? (
+                    <div>
+                      <dt>固定方案</dt>
+                      <dd>
+                        <select
+                          aria-label="固定方案"
+                          disabled={customStatus === 'installing'}
+                          onChange={(event) => setSelectedRecipeId(event.target.value)}
+                          value={selectedRecipeId}
+                        >
+                          {recognition.availableRecipes.map((recipe) => (
+                            <option key={recipe.id} value={recipe.id}>
+                              {recipe.title}
+                            </option>
+                          ))}
+                        </select>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {recognition.availableRecipes.length === 1 ? (
+                    <div>
+                      <dt>方案</dt>
+                      <dd>{selectedRecipe?.title ?? recognition.recipe.title}</dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt>固定提交</dt>
+                    <dd>
+                      <code>{(selectedRecipe ?? recognition.recipe).commit.slice(0, 12)}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>SHA-256</dt>
+                    <dd>
+                      <code>
+                        {(selectedRecipe ?? recognition.recipe).artifactSha256.slice(0, 16)}
+                      </code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>License</dt>
+                    <dd>{recognition.recipe.license}</dd>
+                  </div>
+                  <div>
+                    <dt>Harness 支持</dt>
+                    <dd>
+                      {(selectedRecipe ?? recognition.recipe).harnessSupport.find(
+                        ({ harnessId }) => harnessId === customHarness,
+                      )?.level ?? 'unavailable'}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
+              {selectedRecipe ? (
+                <div className="inline-feedback">
+                  <strong>
+                    {selectedRecipe.contentCompleteness === 'complete'
+                      ? '完整 Markdown 方案'
+                      : '仅说明文件，能力会降级'}
+                  </strong>
+                  <p>
+                    {
+                      selectedRecipe.harnessSupport.find(
+                        ({ harnessId }) => harnessId === customHarness,
+                      )?.detail
+                    }
+                  </p>
+                  {selectedRecipe.limitations.map((limitation) => (
+                    <p key={limitation}>{limitation}</p>
+                  ))}
+                </div>
+              ) : null}
+              <div className="customization-actions">
+                <button
+                  className="button button--secondary"
+                  disabled={customStatus === 'recognizing' || customStatus === 'installing'}
+                  onClick={() => void generateCustomizationTask()}
+                  type="button"
+                >
+                  生成 Coding Agent 任务
+                </button>
+                {recognition.recipe ? (
+                  <>
+                    <button
+                      className="button button--secondary"
+                      disabled={customStatus === 'installing'}
+                      onClick={() => void refreshRecipeStatuses()}
+                      type="button"
+                    >
+                      检查安装状态
+                    </button>
+                    <label className="customization-confirm">
+                      <input
+                        checked={installConfirmed}
+                        disabled={customStatus === 'installing'}
+                        onChange={(event) => setInstallConfirmed(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>已检查 commit、SHA-256、License 与快照恢复范围</span>
+                    </label>
+                    {customStatus === 'installing' ? (
+                      <button
+                        className="button button--secondary"
+                        onClick={() => void cancelInstall()}
+                        type="button"
+                      >
+                        取消安装
+                      </button>
+                    ) : (
+                      <button
+                        className="button button--primary"
+                        disabled={!installConfirmed}
+                        onClick={() =>
+                          void installKnownRecipe(
+                            selectedRecipeStatus?.state === 'drifted' ? 'update' : 'install',
+                          )
+                        }
+                        type="button"
+                      >
+                        {selectedRecipeStatus?.state === 'drifted'
+                          ? '更新到固定版本'
+                          : '安装固定 Skill'}
+                      </button>
+                    )}
+                    {selectedRecipeStatus?.state === 'current' ? (
+                      <>
+                        <button
+                          className="button button--secondary"
+                          onClick={() => void smokeKnownRecipe()}
+                          type="button"
+                        >
+                          运行内容 Smoke Test
+                        </button>
+                        <button
+                          className="button button--secondary"
+                          disabled={!installConfirmed}
+                          onClick={() => void uninstallKnownRecipe()}
+                          type="button"
+                        >
+                          卸载 Skill
+                        </button>
+                      </>
+                    ) : null}
+                    {lastSnapshotId ? (
+                      <button
+                        className="button button--secondary"
+                        disabled={!installConfirmed}
+                        onClick={() => void restoreLastSnapshot()}
+                        type="button"
+                      >
+                        恢复上次快照
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {customTask ? (
+            <div className="customization-task">
+              <header>
+                <strong>{customTask.fileName}</strong>
+                <button
+                  className="button button--secondary"
+                  onClick={() => void copyText(customTask.markdown, 'Coding Agent 任务已复制。')}
+                  type="button"
+                >
+                  <Copy aria-hidden="true" size={16} /> 复制 Markdown 任务
+                </button>
+              </header>
+              <pre>{customTask.markdown}</pre>
+            </div>
+          ) : null}
+
+          {installResult ? (
+            <div className="inline-feedback inline-feedback--success" role="status">
+              {installResult.status === 'reused'
+                ? 'Skill 已存在，未重复写入。'
+                : 'Skill 已安装并通过 Smoke Test。'}
+              上游代码执行：否。
+            </div>
+          ) : null}
+          {uninstallResult ? (
+            <div className="inline-feedback inline-feedback--success" role="status">
+              {uninstallResult.status === 'uninstalled'
+                ? 'Skill 已卸载并通过复读验证。'
+                : 'Skill 原本未安装，项目没有写入。'}
+              上游代码执行：否。
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <form className="discovery-search" onSubmit={submit} role="search">
         <label className="discovery-search__field">

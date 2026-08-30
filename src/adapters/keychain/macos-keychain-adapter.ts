@@ -48,6 +48,9 @@ export type SecurityCommandRunner = (
   input?: string,
 ) => Promise<SecurityCommandResult>
 
+const SECURITY_COMMAND_TIMEOUT_MS = 60_000
+const SECURITY_OUTPUT_LIMIT_BYTES = 65_536
+
 function runSecurityCommand(args: string[], input?: string): Promise<SecurityCommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/security', args, {
@@ -56,17 +59,40 @@ function runSecurityCommand(args: string[], input?: string): Promise<SecurityCom
     })
     let stdout = ''
     let stderr = ''
+    let outputBytes = 0
+    let settled = false
+    const finish = (result: SecurityCommandResult | Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (result instanceof Error) reject(result)
+      else resolve(result)
+    }
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      finish(new Error('macOS 钥匙串命令超时。'))
+    }, SECURITY_COMMAND_TIMEOUT_MS)
+    const append = (current: string, chunk: string): string => {
+      outputBytes += Buffer.byteLength(chunk)
+      if (outputBytes > SECURITY_OUTPUT_LIMIT_BYTES) {
+        child.kill('SIGKILL')
+        finish(new Error('macOS 钥匙串命令输出超过安全上限。'))
+        return current
+      }
+      return current + chunk
+    }
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
+      stdout = append(stdout, chunk)
     })
     child.stderr.on('data', (chunk: string) => {
-      stderr += chunk
+      stderr = append(stderr, chunk)
     })
-    child.once('error', reject)
+    child.once('error', (error) => finish(error))
+    child.stdin.once('error', (error) => finish(error))
     child.once('close', (exitCode) => {
-      resolve({ exitCode: exitCode ?? 1, stdout, stderr })
+      finish({ exitCode: exitCode ?? 1, stdout, stderr })
     })
     child.stdin.end(input)
   })

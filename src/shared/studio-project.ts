@@ -1,11 +1,19 @@
 import { z } from 'zod'
+import { executionModeSchema } from './agent'
 import { componentDescriptorSchema, capabilityIdSchema } from './component'
-import { projectValidationSchema, studioProjectSchema } from '../core/project-model'
+import {
+  projectModelConfigurationSchema,
+  projectValidationSchema,
+  studioProjectSchema,
+} from '../core/project-model'
 import { projectIntegrityReportSchema } from '../core/project-integrity'
+import { agentProfileSchema } from './agent-profile'
+import { harnessIdSchema } from './native-agent'
 
 export const studioProjectStateSchema = z
   .object({
     projectPath: z.string().min(1).nullable(),
+    localAgentId: z.uuid().nullable().default(null),
     project: studioProjectSchema.nullable(),
     validation: projectValidationSchema.nullable(),
     integrity: projectIntegrityReportSchema.nullable().default(null),
@@ -18,9 +26,30 @@ export const studioProjectStateSchema = z
 export const projectMutationInputSchema = z
   .object({ expectedRevision: z.number().int().nonnegative() })
   .strict()
+export const projectMetadataInputSchema = projectMutationInputSchema
+  .extend({
+    name: z.string().trim().min(1).max(80),
+    description: z.string().max(500),
+    executionMode: executionModeSchema,
+  })
+  .strict()
+export const projectProfileInputSchema = projectMutationInputSchema
+  .extend({ profile: agentProfileSchema })
+  .strict()
+export const projectHarnessInputSchema = projectMutationInputSchema
+  .extend({ harnessId: harnessIdSchema })
+  .strict()
+export const projectModelConfigurationInputSchema = projectMutationInputSchema
+  .extend({ modelConfiguration: projectModelConfigurationSchema })
+  .strict()
 export const projectComponentInputSchema = projectMutationInputSchema.extend({
   componentId: z.uuid(),
 })
+export const projectComponentValidationInputSchema = projectComponentInputSchema
+  .extend({ timeoutMs: z.number().int().min(500).max(60_000).default(5_000) })
+  .strict()
+export const projectComponentCancelInputSchema = z.object({ componentId: z.uuid() }).strict()
+export const projectComponentCancelResultSchema = z.object({ cancelled: z.boolean() }).strict()
 export const projectOwnerInputSchema = projectComponentInputSchema.extend({
   capability: capabilityIdSchema,
 })
@@ -102,7 +131,13 @@ export const projectWorkflowFreezeInputSchema = z
   .strict()
 
 export type StudioProjectState = z.infer<typeof studioProjectStateSchema>
+export type ProjectMetadataInput = z.infer<typeof projectMetadataInputSchema>
+export type ProjectProfileInput = z.infer<typeof projectProfileInputSchema>
+export type ProjectHarnessInput = z.infer<typeof projectHarnessInputSchema>
+export type ProjectModelConfigurationInput = z.infer<typeof projectModelConfigurationInputSchema>
 export type ProjectComponentInput = z.infer<typeof projectComponentInputSchema>
+export type ProjectComponentValidationInput = z.infer<typeof projectComponentValidationInputSchema>
+export type ProjectComponentCancelInput = z.infer<typeof projectComponentCancelInputSchema>
 export type ProjectOwnerInput = z.infer<typeof projectOwnerInputSchema>
 export type ProjectDescriptorInput = z.infer<typeof projectDescriptorInputSchema>
 export type ProjectWorkflowCreateInput = z.infer<typeof projectWorkflowCreateInputSchema>

@@ -23,7 +23,7 @@ import type {
   ExperimentRecord,
   ExportExperimentResult,
 } from './experiment'
-import type { RunHistoryDetail, RunRecord, StartRunInput } from './run'
+import type { RunExecutionRoute, RunHistoryDetail, RunRecord, StartRunInput } from './run'
 import type { StackState } from './runtime-plan'
 import type {
   PublishExecuteInput,
@@ -31,6 +31,9 @@ import type {
   PublishPreview,
   PublishPreviewInput,
   PublishResult,
+  PublishRemoteStatus,
+  PublishStatusInput,
+  MulticaRuntime,
   PublishTarget,
 } from './publish'
 import type {
@@ -44,6 +47,10 @@ import type {
 } from './maintenance'
 import type {
   ProjectComponentInput,
+  ProjectProfileInput,
+  ProjectHarnessInput,
+  ProjectComponentValidationInput,
+  ProjectComponentCancelInput,
   ProjectDescriptorInput,
   ProjectOwnerInput,
   ProjectWorkflowCreateInput,
@@ -71,9 +78,59 @@ import type {
 } from './secret-reference'
 import type { RendererPreferences } from './preferences'
 import type { ProjectExportResult } from './agent-stack-package'
+import type {
+  CommandCenterResult,
+  CommandCenterSearchInput,
+  CommandCenterSnapshot,
+} from './command-center'
+import type {
+  HarnessProbe,
+  NativeAgentResult,
+  NativeAgentUiExecuteInput,
+  NativeAgentUiListInput,
+} from './native-agent'
+import type {
+  CustomizationInstallResult,
+  CustomizationRecipeStatus,
+  CustomizationRecognition,
+  CustomizationRecognitionInput,
+  CustomizationRestoreResult,
+  CustomizationSmokeResult,
+  CustomizationTask,
+  CustomizationTaskInput,
+  CustomizationUninstallResult,
+} from './customization'
+import type { StudioDoctorReport } from './doctor'
+import type {
+  ModelAuthActionResult,
+  ModelAuthSelectInput,
+  ModelAuthVerifyInput,
+  ModelAuthView,
+} from './model-auth-ipc'
+import type {
+  AgentSetupActionResult,
+  AgentSetupCompleteResult,
+  AgentSetupSession,
+  AgentSetupUpdateInput,
+  AgentSetupView,
+} from './agent-setup'
+import type { McpValidationInput } from './mcp'
 
 export const ipcChannels = {
   agentsCreate: 'agents:create',
+  agentSetupStart: 'agent-setup:start',
+  agentSetupList: 'agent-setup:list',
+  agentSetupGet: 'agent-setup:get',
+  agentSetupUpdate: 'agent-setup:update',
+  agentSetupSave: 'agent-setup:save',
+  agentSetupDiscard: 'agent-setup:discard',
+  agentSetupConfigureApiKey: 'agent-setup:configure-api-key',
+  agentSetupLaunchLogin: 'agent-setup:launch-login',
+  agentSetupRefreshAuth: 'agent-setup:refresh-auth',
+  agentSetupVerify: 'agent-setup:verify',
+  agentSetupValidateMcp: 'agent-setup:validate-mcp',
+  agentSetupCancel: 'agent-setup:cancel',
+  agentSetupComplete: 'agent-setup:complete',
   agentsGet: 'agents:get',
   agentsList: 'agents:list',
   agentStatusList: 'agent-status:list',
@@ -87,6 +144,13 @@ export const ipcChannels = {
   secretsList: 'secrets:list',
   secretsConfigure: 'secrets:configure',
   secretsDelete: 'secrets:delete',
+  modelAuthStatus: 'model-auth:status',
+  modelAuthSelect: 'model-auth:select',
+  modelAuthConfigureApiKey: 'model-auth:configure-api-key',
+  modelAuthLaunchLogin: 'model-auth:launch-login',
+  modelAuthRefresh: 'model-auth:refresh',
+  modelAuthVerify: 'model-auth:verify',
+  modelAuthCancel: 'model-auth:cancel',
   importsConfirm: 'imports:confirm',
   importsSelectAndScan: 'imports:select-and-scan',
   componentsList: 'components:list',
@@ -97,6 +161,7 @@ export const ipcChannels = {
   stackComponentsRemove: 'stack-components:remove',
   stackOwnersSelect: 'stack-owners:select',
   runsStart: 'runs:start',
+  runsRoute: 'runs:route',
   runsList: 'runs:list',
   runsGet: 'runs:get',
   runsCancel: 'runs:cancel',
@@ -111,19 +176,31 @@ export const ipcChannels = {
   publishPreview: 'publishing:preview',
   publishExecute: 'publishing:execute',
   publishHistory: 'publishing:history',
+  publishStatus: 'publishing:status',
+  publishRuntimes: 'publishing:runtimes',
   maintenanceStatus: 'maintenance:status',
   maintenanceCreateBackup: 'maintenance:create-backup',
   maintenanceSelectRestore: 'maintenance:select-restore',
   maintenanceApplyRestore: 'maintenance:apply-restore',
   maintenanceRevealDataLocation: 'maintenance:reveal-data-location',
+  doctorRun: 'doctor:run',
   preferencesGet: 'preferences:get',
   preferencesUpdate: 'preferences:update',
+  commandCenterSnapshot: 'command-center:snapshot',
+  commandCenterSearch: 'command-center:search',
   studioProjectCurrent: 'studio-project:current',
   studioProjectOpen: 'studio-project:open',
   studioProjectInit: 'studio-project:init',
   studioProjectImport: 'studio-project:component-import',
   studioProjectDescriptorUpdate: 'studio-project:descriptor-update',
+  studioProjectProfileUpdate: 'studio-project:profile-update',
+  studioProjectHarnessSelect: 'studio-project:harness-select',
   studioProjectComponentArchive: 'studio-project:component-archive',
+  studioProjectComponentRestore: 'studio-project:component-restore',
+  studioProjectComponentRecheck: 'studio-project:component-recheck',
+  studioProjectComponentContractTest: 'studio-project:component-contract-test',
+  studioProjectComponentRuntimeValidate: 'studio-project:component-runtime-validate',
+  studioProjectComponentRuntimeCancel: 'studio-project:component-runtime-cancel',
   studioProjectComponentDelete: 'studio-project:component-delete',
   studioProjectStackAdd: 'studio-project:stack-add',
   studioProjectStackRemove: 'studio-project:stack-remove',
@@ -137,6 +214,10 @@ export const ipcChannels = {
   studioProjectFreeze: 'studio-project:freeze',
   studioProjectExport: 'studio-project:export',
   studioProjectExternalChanged: 'studio-project:external-changed',
+  nativeAgentProbes: 'native-agent:probes',
+  nativeAgentExecute: 'native-agent:execute',
+  nativeAgentList: 'native-agent:list',
+  nativeAgentCancel: 'native-agent:cancel',
   demoDataLoad: 'demo-data:load',
   sourceSearch: 'source-discovery:search',
   sourceInspect: 'source-discovery:inspect',
@@ -144,11 +225,40 @@ export const ipcChannels = {
   sourceCancel: 'source-discovery:cancel',
   sourceClipboardWrite: 'source-discovery:clipboard-write',
   sourceOpenUrl: 'source-discovery:open-url',
+  customizationRecognize: 'customization:recognize',
+  customizationTask: 'customization:task',
+  customizationInstall: 'customization:install',
+  customizationUpdate: 'customization:update',
+  customizationCheck: 'customization:check',
+  customizationSmoke: 'customization:smoke',
+  customizationUninstall: 'customization:uninstall',
+  customizationRestore: 'customization:restore',
+  customizationCancel: 'customization:cancel',
   menuCreateAgent: 'menu:create-agent',
   menuOpenSettings: 'menu:open-settings',
 } as const
 
 export interface StudioApi {
+  agentSetup?: {
+    start(): Promise<AgentSetupView>
+    list(): Promise<AgentSetupSession[]>
+    get(id: string): Promise<AgentSetupView>
+    update(input: AgentSetupUpdateInput): Promise<AgentSetupView>
+    save(id: string, expectedRevision: number): Promise<AgentSetupView>
+    discard(id: string): Promise<{ id: string; discarded: true }>
+    configureApiKey(id: string): Promise<AgentSetupActionResult>
+    launchOfficialLogin(id: string): Promise<AgentSetupActionResult>
+    refreshAuthentication(id: string): Promise<AgentSetupView>
+    verify(input: {
+      id: string
+      requestId: string
+      costAcknowledged: true
+      timeoutMs: number
+    }): Promise<AgentSetupActionResult>
+    validateMcp(input: McpValidationInput): Promise<AgentSetupView>
+    cancel(requestId: string): Promise<{ cancelled: boolean }>
+    complete(id: string): Promise<AgentSetupCompleteResult>
+  }
   agents: {
     create(input: CreateAgentInput): Promise<Agent>
     get(id: string): Promise<AgentDetail>
@@ -167,6 +277,15 @@ export interface StudioApi {
     configure(input: ConfigureAgentSecretInput): Promise<ConfigureAgentSecretResult>
     delete(input: DeleteAgentSecretInput): Promise<DeleteAgentSecretResult>
   }
+  modelAuth?: {
+    status(): Promise<ModelAuthView>
+    select(input: ModelAuthSelectInput): Promise<ModelAuthView>
+    configureApiKey(): Promise<ModelAuthActionResult>
+    launchOfficialLogin(): Promise<ModelAuthActionResult>
+    refresh(): Promise<ModelAuthView>
+    verify(input: ModelAuthVerifyInput): Promise<ModelAuthActionResult>
+    cancel(requestId: string): Promise<{ cancelled: boolean }>
+  }
   imports: {
     selectAndScan(): Promise<ImportScanResult>
     confirm(scanId: string): Promise<AgentDetail>
@@ -181,6 +300,7 @@ export interface StudioApi {
     selectOwner(input: SelectCapabilityOwnerInput): Promise<StackState>
   }
   runs: {
+    route(agentId: string): Promise<RunExecutionRoute>
     start(input: StartRunInput): Promise<RunRecord>
     list(agentId: string | null): Promise<RunRecord[]>
     get(runId: string): Promise<RunHistoryDetail>
@@ -200,6 +320,8 @@ export interface StudioApi {
     preview(input: PublishPreviewInput): Promise<PublishPreview>
     publish(input: PublishExecuteInput): Promise<PublishResult>
     history(targetId: PublishTarget['id'], agentId: string): Promise<PublishHistory>
+    status(input: PublishStatusInput): Promise<PublishRemoteStatus>
+    runtimes(): Promise<MulticaRuntime[]>
   }
   maintenance: {
     status(): Promise<MaintenanceStatus>
@@ -208,9 +330,16 @@ export interface StudioApi {
     applyRestore(input: ApplyRestoreInput): Promise<ApplyRestoreResult>
     revealDataLocation(input: RevealDataLocationInput): Promise<RevealDataLocationResult>
   }
+  doctor?: {
+    run(): Promise<StudioDoctorReport>
+  }
   preferences: {
     get(): Promise<RendererPreferences>
     update(input: RendererPreferences): Promise<RendererPreferences>
+  }
+  commandCenter: {
+    snapshot(): Promise<CommandCenterSnapshot>
+    search(input: CommandCenterSearchInput): Promise<CommandCenterResult[]>
   }
   studioProject?: {
     current(): Promise<StudioProjectState>
@@ -218,7 +347,18 @@ export interface StudioApi {
     init(): Promise<StudioProjectState>
     importComponent(expectedRevision: number): Promise<StudioProjectState>
     updateDescriptor(input: ProjectDescriptorInput): Promise<StudioProjectState>
+    updateProfile(input: ProjectProfileInput): Promise<StudioProjectState>
+    selectHarness(input: ProjectHarnessInput): Promise<StudioProjectState>
     archiveComponent(input: ProjectComponentInput): Promise<StudioProjectState>
+    restoreComponent(input: ProjectComponentInput): Promise<StudioProjectState>
+    recheckComponent(input: ProjectComponentInput): Promise<StudioProjectState>
+    runComponentContractTest(input: ProjectComponentInput): Promise<StudioProjectState>
+    runComponentRuntimeValidation(
+      input: ProjectComponentValidationInput,
+    ): Promise<StudioProjectState>
+    cancelComponentRuntimeValidation(
+      input: ProjectComponentCancelInput,
+    ): Promise<{ cancelled: boolean }>
     deleteComponent(input: ProjectComponentInput): Promise<StudioProjectState>
     addToStack(input: ProjectComponentInput): Promise<StudioProjectState>
     removeFromStack(input: ProjectComponentInput): Promise<StudioProjectState>
@@ -234,6 +374,12 @@ export interface StudioApi {
     loadDemoData(): Promise<ComponentRecord[]>
     onExternalChanged(callback: () => void): () => void
   }
+  nativeAgent?: {
+    probes(): Promise<HarnessProbe[]>
+    execute(input: NativeAgentUiExecuteInput): Promise<NativeAgentResult>
+    list(input: NativeAgentUiListInput): Promise<NativeAgentResult[]>
+    cancel(requestId: string): Promise<{ cancelled: boolean }>
+  }
   discovery: {
     search(input: SourceSearchInput): Promise<SourceSearchResult>
     inspect(input: SourceLocatorInput): Promise<DiscoveredRepository>
@@ -241,6 +387,43 @@ export interface StudioApi {
     cancel(): Promise<{ cancelled: boolean }>
     copy(text: string): Promise<void>
     open(url: string): Promise<void>
+  }
+  customization?: {
+    recognize(input: CustomizationRecognitionInput): Promise<CustomizationRecognition>
+    task(input: Omit<CustomizationTaskInput, 'projectPath'>): Promise<CustomizationTask>
+    install(input: {
+      recipeId: string
+      harnessId: CustomizationRecognitionInput['harnessId']
+      localSourcePath?: string
+      expectedRevision: number
+      confirmed: true
+    }): Promise<CustomizationInstallResult>
+    update(input: {
+      recipeId: string
+      harnessId: CustomizationRecognitionInput['harnessId']
+      localSourcePath?: string
+      expectedRevision: number
+      confirmed: true
+    }): Promise<CustomizationInstallResult>
+    check(input: {
+      harnessId: CustomizationRecognitionInput['harnessId']
+    }): Promise<CustomizationRecipeStatus[]>
+    smoke(input: {
+      recipeId: string
+      harnessId: CustomizationRecognitionInput['harnessId']
+    }): Promise<CustomizationSmokeResult>
+    uninstall(input: {
+      recipeId: string
+      harnessId: CustomizationRecognitionInput['harnessId']
+      expectedRevision: number
+      confirmed: true
+    }): Promise<CustomizationUninstallResult>
+    restore(input: {
+      snapshotId: string
+      expectedRevision: number
+      confirmed: true
+    }): Promise<CustomizationRestoreResult>
+    cancel(): Promise<{ cancelled: boolean }>
   }
   menu: {
     onCreateAgent(callback: () => void): () => void

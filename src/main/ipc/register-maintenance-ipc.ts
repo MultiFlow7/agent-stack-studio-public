@@ -19,8 +19,20 @@ export function registerMaintenanceIpc(options: {
   maintenance: DataMaintenanceService
   getWindow: () => BrowserWindow | undefined
   scheduleRestart: () => void
+  selectBackupDestination?: () => Promise<string | null>
+  selectRestoreSource?: () => Promise<string | null>
 }): () => void {
   const selectedBackups = new Map<string, string>()
+  const inFlight = new Map<string, Promise<unknown>>()
+  const singleFlight = <T>(key: string, action: () => Promise<T>): Promise<T> => {
+    const existing = inFlight.get(key) as Promise<T> | undefined
+    if (existing) return existing
+    const task = action().finally(() => {
+      if (inFlight.get(key) === task) inFlight.delete(key)
+    })
+    inFlight.set(key, task)
+    return task
+  }
   const showOpenDialog = (dialogOptions: Electron.OpenDialogOptions) => {
     const window = options.getWindow()
     return window
@@ -41,16 +53,23 @@ export function registerMaintenanceIpc(options: {
     createValidatedHandler({
       input: emptyMaintenanceInputSchema,
       output: createBackupResultSchema,
-      handle: async () => {
-        const result = await showOpenDialog({
-          title: '选择备份保存位置',
-          buttonLabel: '在此创建备份',
-          properties: ['openDirectory', 'createDirectory'],
-        })
-        const destination = result.filePaths[0]
-        if (result.canceled || !destination) return { status: 'cancelled' as const }
-        return options.maintenance.createBackup(destination)
-      },
+      handle: () =>
+        singleFlight('backup', async () => {
+          if (options.selectBackupDestination) {
+            const destination = await options.selectBackupDestination()
+            return destination
+              ? options.maintenance.createBackup(destination)
+              : { status: 'cancelled' as const }
+          }
+          const result = await showOpenDialog({
+            title: '选择备份保存位置',
+            buttonLabel: '在此创建备份',
+            properties: ['openDirectory', 'createDirectory'],
+          })
+          const destination = result.filePaths[0]
+          if (result.canceled || !destination) return { status: 'cancelled' as const }
+          return options.maintenance.createBackup(destination)
+        }),
     }),
   )
   ipcMain.handle(
@@ -58,20 +77,22 @@ export function registerMaintenanceIpc(options: {
     createValidatedHandler({
       input: emptyMaintenanceInputSchema,
       output: selectRestoreResultSchema,
-      handle: async () => {
-        const result = await showOpenDialog({
-          title: '选择 Agent Stack Studio 备份',
-          buttonLabel: '检查备份',
-          properties: ['openDirectory'],
-        })
-        const sourcePath = result.filePaths[0]
-        if (result.canceled || !sourcePath) return { status: 'cancelled' as const }
-        const inspected = await options.maintenance.inspectBackup(sourcePath)
-        const selectionId = randomUUID()
-        selectedBackups.clear()
-        selectedBackups.set(selectionId, sourcePath)
-        return { status: 'selected' as const, preview: { ...inspected.preview, selectionId } }
-      },
+      handle: () =>
+        singleFlight('select-restore', async () => {
+          const sourcePath = options.selectRestoreSource
+            ? await options.selectRestoreSource()
+            : await showOpenDialog({
+                title: '选择 Agent Stack Studio 备份',
+                buttonLabel: '检查备份',
+                properties: ['openDirectory'],
+              }).then((result) => (result.canceled ? null : (result.filePaths[0] ?? null)))
+          if (!sourcePath) return { status: 'cancelled' as const }
+          const inspected = await options.maintenance.inspectBackup(sourcePath)
+          const selectionId = randomUUID()
+          selectedBackups.clear()
+          selectedBackups.set(selectionId, sourcePath)
+          return { status: 'selected' as const, preview: { ...inspected.preview, selectionId } }
+        }),
     }),
   )
   ipcMain.handle(
@@ -79,16 +100,17 @@ export function registerMaintenanceIpc(options: {
     createValidatedHandler({
       input: applyRestoreInputSchema,
       output: applyRestoreResultSchema,
-      handle: async ({ selectionId }) => {
-        const sourcePath = selectedBackups.get(selectionId)
-        if (!sourcePath) {
-          throw new AppError('NOT_FOUND', '恢复选择已失效，请重新检查备份。')
-        }
-        const staged = await options.maintenance.stageRestore(sourcePath)
-        selectedBackups.clear()
-        setTimeout(options.scheduleRestart, 300)
-        return { status: 'restarting' as const, backupName: staged.preview.backupName }
-      },
+      handle: ({ selectionId }) =>
+        singleFlight(`restore:${selectionId}`, async () => {
+          const sourcePath = selectedBackups.get(selectionId)
+          if (!sourcePath) {
+            throw new AppError('NOT_FOUND', '恢复选择已失效，请重新检查备份。')
+          }
+          const staged = await options.maintenance.stageRestore(sourcePath)
+          selectedBackups.clear()
+          setTimeout(options.scheduleRestart, 300)
+          return { status: 'restarting' as const, backupName: staged.preview.backupName }
+        }),
     }),
   )
   ipcMain.handle(
@@ -110,6 +132,7 @@ export function registerMaintenanceIpc(options: {
 
   return () => {
     selectedBackups.clear()
+    inFlight.clear()
     for (const channel of [
       ipcChannels.maintenanceStatus,
       ipcChannels.maintenanceCreateBackup,

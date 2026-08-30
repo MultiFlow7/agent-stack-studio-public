@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import {
   access,
+  chmod,
   copyFile,
   lstat,
   mkdir,
   readFile,
+  realpath,
   readdir,
   rename,
   rm,
@@ -13,6 +16,7 @@ import {
 } from 'node:fs/promises'
 import path from 'node:path'
 import Database from 'better-sqlite3'
+import { z } from 'zod'
 import {
   backupManifestSchema,
   maintenanceStatusSchema,
@@ -30,6 +34,15 @@ import { CURRENT_SCHEMA_VERSION } from '../persistence/migrations'
 const BACKUP_DATABASE_NAME = 'studio.sqlite3'
 const BACKUP_MANIFEST_NAME = 'backup-manifest.json'
 const APPLICATION_ID = 'studio.agentstack.desktop'
+const MAX_BACKUP_FILES = 100_000
+
+const restoreMarkerSchema = z
+  .object({
+    restoredAt: z.iso.datetime(),
+    backupName: z.string().min(1).max(255),
+    sourceSchemaVersion: z.number().int().positive(),
+  })
+  .strict()
 
 interface DataMaintenancePaths {
   userData: string
@@ -77,8 +90,20 @@ async function exists(filePath: string): Promise<boolean> {
 }
 
 async function sha256File(filePath: string): Promise<string> {
-  const contents = await readFile(filePath)
-  return createHash('sha256').update(contents).digest('hex')
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) {
+    if (!Buffer.isBuffer(chunk)) throw new AppError('PERSISTENCE_FAILED', '无法读取备份文件。')
+    hash.update(chunk)
+  }
+  return hash.digest('hex')
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate)
+  return (
+    relative === '' ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+  )
 }
 
 function portableRelativePath(filePath: string): string {
@@ -86,7 +111,8 @@ function portableRelativePath(filePath: string): string {
 }
 
 async function copyDataTree(source: string, destination: string): Promise<CopySummary> {
-  await mkdir(destination, { recursive: true })
+  await mkdir(destination, { recursive: true, mode: 0o700 })
+  await chmod(destination, 0o700)
   if (!(await exists(source))) return { excludedSymbolicLinks: 0 }
 
   let excludedSymbolicLinks = 0
@@ -101,11 +127,15 @@ async function copyDataTree(source: string, destination: string): Promise<CopySu
         continue
       }
       if (entryStats.isDirectory()) {
-        await mkdir(destinationPath, { recursive: true })
+        await mkdir(destinationPath, { recursive: true, mode: 0o700 })
+        await chmod(destinationPath, 0o700)
         await visit(sourcePath, destinationPath)
         continue
       }
-      if (entryStats.isFile()) await copyFile(sourcePath, destinationPath)
+      if (entryStats.isFile()) {
+        await copyFile(sourcePath, destinationPath)
+        await chmod(destinationPath, 0o600)
+      }
     }
   }
 
@@ -115,7 +145,8 @@ async function copyDataTree(source: string, destination: string): Promise<CopySu
 
 async function copyVerifiedTree(source: string, destination: string): Promise<void> {
   const visit = async (sourceDirectory: string, destinationDirectory: string): Promise<void> => {
-    await mkdir(destinationDirectory, { recursive: true })
+    await mkdir(destinationDirectory, { recursive: true, mode: 0o700 })
+    await chmod(destinationDirectory, 0o700)
     const entries = await readdir(sourceDirectory, { withFileTypes: true })
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       const sourcePath = path.join(sourceDirectory, entry.name)
@@ -125,7 +156,10 @@ async function copyVerifiedTree(source: string, destination: string): Promise<vo
         throw new AppError('VALIDATION_FAILED', '备份包包含不允许的符号链接。')
       }
       if (entryStats.isDirectory()) await visit(sourcePath, destinationPath)
-      else if (entryStats.isFile()) await copyFile(sourcePath, destinationPath)
+      else if (entryStats.isFile()) {
+        await copyFile(sourcePath, destinationPath)
+        await chmod(destinationPath, 0o600)
+      }
     }
   }
   await visit(source, destination)
@@ -148,6 +182,9 @@ async function collectFileEntries(root: string): Promise<FileEntry[]> {
         continue
       }
       if (!childStats.isFile()) continue
+      if (entries.length >= MAX_BACKUP_FILES) {
+        throw new AppError('VALIDATION_FAILED', '备份文件数量超过安全上限。')
+      }
       entries.push({
         relativePath: portableRelativePath(path.relative(root, childPath)),
         sha256: await sha256File(childPath),
@@ -200,6 +237,8 @@ export class DataMaintenanceService {
   readonly #lastRestorePath: string
   readonly #recoveryPath: string
   readonly #logsPath: string
+  readonly #stageRestoreInFlight = new Map<string, Promise<InspectedBackup>>()
+  #stageRestoreQueue: Promise<void> = Promise.resolve()
 
   constructor(options: DataMaintenanceOptions) {
     this.#paths = options.paths
@@ -278,7 +317,9 @@ export class DataMaintenanceService {
     let lastRestoreAt: string | null = null
     if (await exists(this.#lastRestorePath)) {
       try {
-        const marker = JSON.parse(await readFile(this.#lastRestorePath, 'utf8')) as RestoreMarker
+        const marker = restoreMarkerSchema.parse(
+          JSON.parse(await readFile(this.#lastRestorePath, 'utf8')),
+        )
         lastRestoreAt = marker.restoredAt
       } catch {
         lastRestoreAt = null
@@ -299,16 +340,26 @@ export class DataMaintenanceService {
   async createBackup(
     destinationParent: string,
   ): Promise<Extract<CreateBackupResult, { status: 'saved' }>> {
-    await mkdir(destinationParent, { recursive: true })
+    await mkdir(destinationParent, { recursive: true, mode: 0o700 })
+    const resolvedDestination = await realpath(destinationParent)
+    for (const source of [this.#paths.workspaces, this.#paths.artifacts]) {
+      const resolvedSource = await realpath(source).catch(() => path.resolve(source))
+      if (isPathWithin(resolvedSource, resolvedDestination)) {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          '备份保存位置不能位于 Workspaces 或 Artifacts 内，以避免递归复制。',
+        )
+      }
+    }
     const createdAt = this.#now().toISOString()
     const timestamp = createdAt.replaceAll(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
     const backupName = `Agent Stack Studio Backup ${timestamp}`
     const suffix = randomUUID().slice(0, 8)
-    const finalPath = path.join(destinationParent, `${backupName} ${suffix}`)
-    const stagingPath = path.join(destinationParent, `.studio-backup-${randomUUID()}.tmp`)
+    const finalPath = path.join(resolvedDestination, `${backupName} ${suffix}`)
+    const stagingPath = path.join(resolvedDestination, `.studio-backup-${randomUUID()}.tmp`)
 
     try {
-      await mkdir(stagingPath, { recursive: true })
+      await mkdir(stagingPath, { recursive: true, mode: 0o700 })
       const snapshotPath = path.join(stagingPath, BACKUP_DATABASE_NAME)
       const sourceDatabase = new Database(this.#paths.database, {
         readonly: true,
@@ -339,6 +390,7 @@ export class DataMaintenanceService {
       }
       await rm(`${snapshotPath}-wal`, { force: true })
       await rm(`${snapshotPath}-shm`, { force: true })
+      await chmod(snapshotPath, 0o600)
       const databaseStats = await stat(snapshotPath)
       const files = await collectFileEntries(stagingPath)
       const dataFiles = files.filter(({ relativePath }) => relativePath !== BACKUP_DATABASE_NAME)
@@ -361,9 +413,10 @@ export class DataMaintenanceService {
       await writeFile(
         path.join(stagingPath, BACKUP_MANIFEST_NAME),
         `${JSON.stringify(manifest, null, 2)}\n`,
-        'utf8',
+        { encoding: 'utf8', mode: 0o600 },
       )
       await rename(stagingPath, finalPath)
+      await chmod(finalPath, 0o700)
 
       return {
         status: 'saved',
@@ -438,6 +491,26 @@ export class DataMaintenanceService {
   }
 
   async stageRestore(sourcePath: string): Promise<InspectedBackup> {
+    const key = path.resolve(sourcePath)
+    const existing = this.#stageRestoreInFlight.get(key)
+    if (existing) return existing
+    const task = this.#stageRestoreQueue
+      .catch(() => undefined)
+      .then(() => this.#stageRestore(sourcePath))
+      .finally(() => {
+        if (this.#stageRestoreInFlight.get(key) === task) {
+          this.#stageRestoreInFlight.delete(key)
+        }
+      })
+    this.#stageRestoreQueue = task.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.#stageRestoreInFlight.set(key, task)
+    return task
+  }
+
+  async #stageRestore(sourcePath: string): Promise<InspectedBackup> {
     const inspected = await this.inspectBackup(sourcePath)
     const stagingPath = path.join(this.#paths.userData, `.pending-restore-${randomUUID()}`)
     try {
@@ -468,13 +541,16 @@ export class DataMaintenanceService {
     let swapStarted = false
 
     try {
-      await mkdir(stagingPath, { recursive: true })
-      await mkdir(rollbackPath, { recursive: true })
+      await mkdir(stagingPath, { recursive: true, mode: 0o700 })
+      await mkdir(rollbackPath, { recursive: true, mode: 0o700 })
       for (const [source, target] of targets) {
         const staged = path.join(stagingPath, path.basename(target))
         const sourceStats = await lstat(source)
         if (sourceStats.isDirectory()) await copyVerifiedTree(source, staged)
-        else await copyFile(source, staged)
+        else {
+          await copyFile(source, staged)
+          await chmod(staged, 0o600)
+        }
       }
 
       swapStarted = true
@@ -501,12 +577,15 @@ export class DataMaintenanceService {
       await rm(rollbackPath, { recursive: true, force: true })
     }
 
-    const marker: RestoreMarker = {
+    const marker = restoreMarkerSchema.parse({
       restoredAt: this.#now().toISOString(),
       backupName: inspected.preview.backupName,
       sourceSchemaVersion: inspected.manifest.database.schemaVersion,
-    }
-    await writeFile(this.#lastRestorePath, `${JSON.stringify(marker, null, 2)}\n`, 'utf8')
+    }) satisfies RestoreMarker
+    await writeFile(this.#lastRestorePath, `${JSON.stringify(marker, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    })
     await rm(this.#pendingRestorePath, { recursive: true, force: true })
     return marker
   }

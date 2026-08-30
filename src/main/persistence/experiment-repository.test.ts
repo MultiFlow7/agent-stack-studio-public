@@ -4,6 +4,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ExperimentRepository } from './experiment-repository'
+import { CURRENT_SCHEMA_VERSION } from './migrations'
 
 const temporaryDirectories: string[] = []
 
@@ -40,7 +41,7 @@ describe('ExperimentRepository migration', () => {
     const migrated = new Database(databasePath)
     expect(
       migrated.prepare('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1').get(),
-    ).toEqual({ version: 8 })
+    ).toEqual({ version: CURRENT_SCHEMA_VERSION })
     expect(
       migrated
         .prepare(

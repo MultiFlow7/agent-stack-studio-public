@@ -179,10 +179,13 @@ function installApi(initialDetail?: ExperimentDetail) {
   const exportExperiment = vi.fn(() =>
     Promise.resolve({ status: 'saved' as const, fileName: 'experiment.json' }),
   )
+  const get = vi.fn<StudioApi['experiments']['get']>(() =>
+    detail ? Promise.resolve(detail) : Promise.reject(new Error('not found')),
+  )
   const experiments: StudioApi['experiments'] = {
     create,
     list: vi.fn(() => Promise.resolve(records)),
-    get: vi.fn(() => (detail ? Promise.resolve(detail) : Promise.reject(new Error('not found')))),
+    get,
     refreshDrift: vi.fn(() =>
       detail ? Promise.resolve(detail) : Promise.reject(new Error('not found')),
     ),
@@ -219,6 +222,7 @@ function installApi(initialDetail?: ExperimentDetail) {
       selectOwner: vi.fn(() => Promise.reject(new Error('unused'))),
     },
     runs: {
+      route: vi.fn(() => Promise.resolve({ kind: 'legacy' as const })),
       start: vi.fn(() => Promise.reject(new Error('unused'))),
       list: vi.fn(() => Promise.resolve([])),
       get: vi.fn(() => Promise.reject(new Error('unused'))),
@@ -226,27 +230,42 @@ function installApi(initialDetail?: ExperimentDetail) {
     },
     experiments,
     publishing: {
+      runtimes: vi.fn(() => Promise.resolve([])),
       targets: vi.fn(() => Promise.resolve([])),
       preview: vi.fn(() => Promise.reject(new Error('unused'))),
       publish: vi.fn(() => Promise.reject(new Error('unused'))),
       history: vi.fn(() => Promise.resolve({ mapping: null, receipts: [] })),
+      status: vi.fn(() => Promise.reject(new Error('unused'))),
     },
     maintenance: {} as StudioApi['maintenance'],
     preferences: {} as StudioApi['preferences'],
+    commandCenter: {} as StudioApi['commandCenter'],
     discovery: {} as StudioApi['discovery'],
     menu: {
       onCreateAgent: vi.fn(() => () => undefined),
       onOpenSettings: vi.fn(() => () => undefined),
     },
   }
-  return { create, start, cancel, exportExperiment }
+  return { create, get, start, cancel, exportExperiment }
 }
 
 describe('ExperimentsView', () => {
+  it('opens a command-center Experiment destination directly', async () => {
+    const detail = createDetail('completed')
+    const { get } = installApi(detail)
+    render(<ExperimentsView experimentId={detail.experiment.id} />)
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith(detail.experiment.id))
+    expect(await screen.findByRole('heading', { name: 'Prompt 与随机种子对照实验' })).toBeVisible()
+  })
+
   it('teaches the empty state and creates the F/G matrix from the keyboard', async () => {
     const { create } = installApi()
     const user = userEvent.setup()
     render(<ExperimentsView agentId={fixtureAgentId} />)
+    expect(await screen.findByText('Experiment 历史只读')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '创建第一个实验' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '进入旧版 Experiment 迁移工具' }))
     await user.click(await screen.findByRole('button', { name: '创建第一个实验' }))
     const submit = screen.getByRole('button', { name: '锁定定义并创建矩阵' })
     submit.focus()
@@ -262,6 +281,7 @@ describe('ExperimentsView', () => {
     const { start, cancel, exportExperiment } = installApi()
     const user = userEvent.setup()
     render(<ExperimentsView agentId={fixtureAgentId} />)
+    await user.click(await screen.findByRole('button', { name: '进入旧版 Experiment 迁移工具' }))
     await user.click(await screen.findByRole('button', { name: '创建第一个实验' }))
     await user.click(screen.getByRole('button', { name: '锁定定义并创建矩阵' }))
     await user.click(await screen.findByRole('button', { name: '运行矩阵' }))

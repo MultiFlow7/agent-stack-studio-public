@@ -1,16 +1,34 @@
 import {
+  Archive,
   ArrowClockwise,
   ArrowLeft,
   Cube,
   Info,
   MagnifyingGlass,
+  PencilSimple,
+  Plus,
+  Trash,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentCatalogItem } from '../../../shared/component-catalog'
-import { capabilityLabel, compatibilityLabels, validationLabels } from '../copy'
+import type { ComponentDescriptor } from '../../../shared/component'
+import {
+  capabilityLabel,
+  compatibilityAssessmentLabels,
+  compatibilityLabels,
+  validationLabels,
+} from '../copy'
+import { DescriptorEditor } from './DescriptorEditor'
+import type { CompatibilityAction } from '../../../shared/compatibility-assessment'
+import type { StudioProjectState } from '../../../shared/studio-project'
 
 type CatalogStatus = 'loading' | 'ready' | 'error'
+
+interface ComponentCatalogViewProps {
+  initialComponentId?: string
+  onOpenDiscovery?: () => void
+}
 
 function sourceLabel(kind: ComponentCatalogItem['component']['descriptor']['source']['kind']) {
   if (kind === 'built-in') return '内置'
@@ -19,17 +37,25 @@ function sourceLabel(kind: ComponentCatalogItem['component']['descriptor']['sour
   return '本地包'
 }
 
-export function ComponentCatalogView() {
+export function ComponentCatalogView({
+  initialComponentId,
+  onOpenDiscovery,
+}: ComponentCatalogViewProps) {
   const [items, setItems] = useState<ComponentCatalogItem[]>([])
   const [status, setStatus] = useState<CatalogStatus>('loading')
   const [error, setError] = useState<string>()
   const [query, setQuery] = useState('')
   const [compatibility, setCompatibility] = useState('all')
   const [source, setSource] = useState('all')
+  const [lifecycle, setLifecycle] = useState<'active' | 'archived' | 'all'>('active')
   const [selectedId, setSelectedId] = useState<string>()
   const [detail, setDetail] = useState<ComponentCatalogItem>()
   const [detailStatus, setDetailStatus] = useState<CatalogStatus>('ready')
   const [detailError, setDetailError] = useState<string>()
+  const [isImporting, setImporting] = useState(false)
+  const [feedback, setFeedback] = useState<string>()
+  const [pending, setPending] = useState<string>()
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -43,20 +69,82 @@ export function ComponentCatalogView() {
     }
   }, [])
 
+  const importComponent = useCallback(async () => {
+    setImporting(true)
+    setError(undefined)
+    setFeedback(undefined)
+    try {
+      const current = await window.studio.studioProject!.current()
+      if (!current.project) throw new Error('请先在顶栏打开或创建一个项目。')
+      const next = await window.studio.studioProject!.importComponent(current.project.revision)
+      setItems(await window.studio.components.catalog())
+      setStatus('ready')
+      if (next.project?.revision !== current.project.revision) {
+        setFeedback('组件已静态导入，现在可以在 Agent 的 Stack 中选择。')
+      }
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : '无法导入组件。')
+      setStatus('error')
+    } finally {
+      setImporting(false)
+    }
+  }, [])
+
   const openDetail = useCallback(async (componentId: string) => {
+    const request = ++detailRequest.current
     setSelectedId(componentId)
     setDetail(undefined)
     setDetailError(undefined)
     setDetailStatus('loading')
     window.setTimeout(() => document.getElementById('component-detail-panel')?.focus(), 0)
     try {
-      setDetail(await window.studio.components.get(componentId))
+      const nextDetail = await window.studio.components.get(componentId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setDetailStatus('ready')
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setDetailError(loadError instanceof Error ? loadError.message : '无法读取组件详情。')
       setDetailStatus('error')
     }
   }, [])
+
+  const mutateComponent = useCallback(
+    async (
+      componentId: string,
+      action: (expectedRevision: number) => Promise<StudioProjectState>,
+      success: string,
+      deleted = false,
+      operation?: string,
+    ): Promise<boolean> => {
+      setPending(operation ? `${componentId}:${operation}` : componentId)
+      setDetailError(undefined)
+      setFeedback(operation === 'recheck' ? '正在重新静态检查，不会执行组件代码…' : undefined)
+      try {
+        const current = await window.studio.studioProject!.current()
+        if (!current.project) throw new Error('请先在顶栏打开或创建一个项目。')
+        const next = await action(current.project.revision)
+        const cancelled =
+          operation === 'recheck' && next.project?.revision === current.project.revision
+        const nextItems = await window.studio.components.catalog()
+        setItems(nextItems)
+        setFeedback(cancelled ? '已取消重新关联，项目与兼容证据均未改动。' : success)
+        if (deleted) {
+          setSelectedId(undefined)
+          setDetail(undefined)
+        } else {
+          setDetail(await window.studio.components.get(componentId))
+        }
+        return true
+      } catch (cause) {
+        setDetailError(cause instanceof Error ? cause.message : '无法更新组件。')
+        return false
+      } finally {
+        setPending(undefined)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     let active = true
@@ -77,6 +165,20 @@ export function ComponentCatalogView() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!window.studio.studioProject?.onExternalChanged) return undefined
+    return window.studio.studioProject.onExternalChanged(() => {
+      void load()
+      if (selectedId) void openDetail(selectedId)
+    })
+  }, [load, openDetail, selectedId])
+
+  useEffect(() => {
+    if (!initialComponentId) return
+    const timer = window.setTimeout(() => void openDetail(initialComponentId), 0)
+    return () => window.clearTimeout(timer)
+  }, [initialComponentId, openDetail])
+
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('zh-CN')
     return items.filter(({ component }) => {
@@ -90,18 +192,43 @@ export function ComponentCatalogView() {
       const matchesCompatibility =
         compatibility === 'all' || descriptor.compatibility.level === compatibility
       const matchesSource = source === 'all' || descriptor.source.kind === source
-      return matchesQuery && matchesCompatibility && matchesSource
+      const matchesLifecycle =
+        lifecycle === 'all' ||
+        (lifecycle === 'archived' ? Boolean(component.archivedAt) : !component.archivedAt)
+      return matchesQuery && matchesCompatibility && matchesSource && matchesLifecycle
     })
-  }, [compatibility, items, query, source])
+  }, [compatibility, items, lifecycle, query, source])
 
   return (
     <div className="catalog-page">
       <header className="page-header">
         <div>
           <h1>组件</h1>
-          <p>查看保存在这台 Mac 上的 Component Contract、能力覆盖、使用方和验证证据。</p>
+          <p>选择 Harness 与能力组件；来源、权限和工程证据可以按需查看。</p>
+        </div>
+        <div className="page-header__actions">
+          {onOpenDiscovery ? (
+            <button className="button button--secondary" onClick={onOpenDiscovery} type="button">
+              查找公开来源
+            </button>
+          ) : null}
+          <button
+            className="button button--primary"
+            disabled={isImporting}
+            onClick={() => void importComponent()}
+            type="button"
+          >
+            <Plus aria-hidden="true" size={17} />
+            {isImporting ? '正在检查…' : '添加本地来源'}
+          </button>
         </div>
       </header>
+
+      {feedback && !selectedId ? (
+        <div className="detail-feedback" role="status">
+          {feedback}
+        </div>
+      ) : null}
 
       {status === 'loading' ? (
         <section aria-busy="true" aria-label="正在载入组件" className="loading-state">
@@ -130,7 +257,14 @@ export function ComponentCatalogView() {
             <Cube size={32} weight="duotone" />
           </div>
           <h2>尚无本地组件记录</h2>
-          <p>静态导入或内置组件通过 Component Contract v1 验证后，会出现在这里。</p>
+          <p>选择本地仓库后，Studio 只做静态检查；导入完成后会立即出现在 Agent 组装器中。</p>
+          <button
+            className="button button--primary"
+            onClick={() => void importComponent()}
+            type="button"
+          >
+            <Plus aria-hidden="true" size={17} /> 导入第一个组件
+          </button>
         </section>
       ) : null}
 
@@ -150,6 +284,17 @@ export function ComponentCatalogView() {
               </span>
             </label>
             <label>
+              <span>范围</span>
+              <select
+                onChange={(event) => setLifecycle(event.target.value as typeof lifecycle)}
+                value={lifecycle}
+              >
+                <option value="active">现有组件</option>
+                <option value="archived">已归档</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
               <span>兼容状态</span>
               <select
                 onChange={(event) => setCompatibility(event.target.value)}
@@ -161,7 +306,7 @@ export function ComponentCatalogView() {
                 <option value="adapter">需要 Adapter</option>
                 <option value="fork">需要 Fork</option>
                 <option value="blocked">已阻断</option>
-                <option value="unknown">待确认</option>
+                <option value="unknown">机器证据不足</option>
               </select>
             </label>
             <label>
@@ -185,6 +330,7 @@ export function ComponentCatalogView() {
                   setQuery('')
                   setCompatibility('all')
                   setSource('all')
+                  setLifecycle('active')
                 }}
                 type="button"
               >
@@ -252,7 +398,9 @@ export function ComponentCatalogView() {
                               {needsAttention ? (
                                 <WarningCircle aria-hidden="true" size={16} />
                               ) : null}
-                              {compatibilityLabels[compatibilityState.level]}
+                              {component.archivedAt
+                                ? '已归档'
+                                : compatibilityLabels[compatibilityState.level]}
                             </span>
                             <small>{validationLabels[compatibilityState.validation]}</small>
                           </td>
@@ -295,6 +443,7 @@ export function ComponentCatalogView() {
           <button
             className="back-button"
             onClick={() => {
+              detailRequest.current += 1
               setSelectedId(undefined)
               setDetail(undefined)
               setDetailError(undefined)
@@ -323,22 +472,241 @@ export function ComponentCatalogView() {
               </button>
             </div>
           ) : null}
-          {detailStatus === 'ready' && detail ? <ComponentDetail item={detail} /> : null}
+          {detailStatus === 'ready' && detail ? (
+            <ComponentDetail
+              error={detailError}
+              feedback={feedback}
+              item={detail}
+              pending={Boolean(pending?.startsWith(detail.component.id))}
+              pendingOperation={pending?.startsWith(detail.component.id) ? pending : undefined}
+              runtimePending={pending === `${detail.component.id}:runtime`}
+              onArchive={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.archiveComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '组件已归档，历史引用保持可读。',
+                )
+              }
+              onDelete={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.deleteComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '未引用组件已删除。',
+                  true,
+                )
+              }
+              onRestore={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.restoreComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '组件已恢复，现在可在 Agent Stack 中选择。',
+                )
+              }
+              onRecheck={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.recheckComponent({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '静态检查已完成，未执行组件代码。',
+                  false,
+                  'recheck',
+                )
+              }
+              onContractTest={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.runComponentContractTest({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                    }),
+                  '契约测试已通过，Receipt 与 Artifact 哈希已记录。',
+                  false,
+                  'contract',
+                )
+              }
+              onRuntimeValidate={() =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.runComponentRuntimeValidation({
+                      componentId: detail.component.id,
+                      expectedRevision,
+                      timeoutMs: 5_000,
+                    }),
+                  '受信最小运行验证已通过。',
+                  false,
+                  'runtime',
+                )
+              }
+              onCancelRuntime={async () => {
+                const result = await window.studio.studioProject!.cancelComponentRuntimeValidation({
+                  componentId: detail.component.id,
+                })
+                setFeedback(
+                  result.cancelled
+                    ? '正在取消运行验证，本次不会写入证据。'
+                    : '当前没有可取消的运行验证。',
+                )
+              }}
+              onUpdate={(descriptor) =>
+                mutateComponent(
+                  detail.component.id,
+                  (expectedRevision) =>
+                    window.studio.studioProject!.updateDescriptor({
+                      componentId: detail.component.id,
+                      descriptor,
+                      expectedRevision,
+                    }),
+                  'Descriptor 已更新，原兼容证据等级保持不变。',
+                )
+              }
+            />
+          ) : null}
         </section>
       ) : null}
     </div>
   )
 }
 
-function ComponentDetail({ item }: { item: ComponentCatalogItem }) {
+function ComponentDetail({
+  item,
+  pending,
+  pendingOperation,
+  runtimePending,
+  feedback,
+  error,
+  onArchive,
+  onRestore,
+  onDelete,
+  onUpdate,
+  onRecheck,
+  onContractTest,
+  onRuntimeValidate,
+  onCancelRuntime,
+}: {
+  item: ComponentCatalogItem
+  pending: boolean
+  pendingOperation?: string
+  runtimePending: boolean
+  feedback?: string
+  error?: string
+  onArchive: () => Promise<boolean>
+  onRestore: () => Promise<boolean>
+  onDelete: () => Promise<boolean>
+  onUpdate: (descriptor: ComponentDescriptor) => Promise<boolean>
+  onRecheck: () => Promise<boolean>
+  onContractTest: () => Promise<boolean>
+  onRuntimeValidate: () => Promise<boolean>
+  onCancelRuntime: () => Promise<void>
+}) {
   const descriptor = item.component.descriptor
+  const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const executeAssessmentAction = (action: CompatibilityAction): void => {
+    if (
+      action.action === 'edit-contract' ||
+      action.action === 'declare-configuration' ||
+      action.action === 'select-strategy'
+    ) {
+      setEditing(true)
+    } else if (action.action === 'recheck-static') {
+      void onRecheck()
+    } else if (action.action === 'run-contract-test') {
+      void onContractTest()
+    } else if (action.action === 'run-trusted-validation') {
+      void onRuntimeValidate()
+    }
+  }
   return (
     <div className="component-detail">
+      {error ? (
+        <div className="component-operation-feedback detail-feedback--error" role="alert">
+          {error}
+        </div>
+      ) : feedback ? (
+        <div
+          aria-busy={pendingOperation?.endsWith(':recheck') || undefined}
+          className="component-operation-feedback"
+          role="status"
+        >
+          {feedback}
+        </div>
+      ) : null}
       <header>
         <span className="eyebrow">Component Contract v{descriptor.contractVersion}</span>
         <h2>{descriptor.name}</h2>
         <p>{descriptor.compatibility.detail}</p>
         <code>{descriptor.id}</code>
+        <div className="page-header__actions">
+          {item.component.archivedAt ? (
+            <button
+              className="button button--secondary"
+              disabled={pending}
+              onClick={() => void onRestore()}
+              type="button"
+            >
+              <ArrowClockwise aria-hidden="true" size={17} />
+              恢复组件
+            </button>
+          ) : (
+            <button
+              className="button button--secondary"
+              disabled={pending}
+              onClick={() => void onArchive()}
+              type="button"
+            >
+              <Archive aria-hidden="true" size={17} />
+              归档组件
+            </button>
+          )}
+          {!confirmDelete ? (
+            <button
+              className="button button--danger"
+              disabled={pending || !item.component.archivedAt}
+              onClick={() => setConfirmDelete(true)}
+              type="button"
+              title={item.component.archivedAt ? undefined : '请先归档并复核引用'}
+            >
+              <Trash aria-hidden="true" size={17} />
+              永久删除
+            </button>
+          ) : (
+            <span className="inline-confirm" role="group" aria-label={`删除 ${descriptor.name}`}>
+              <button
+                className="button button--danger"
+                disabled={pending}
+                onClick={() => void onDelete()}
+                type="button"
+              >
+                确认删除
+              </button>
+              <button
+                className="button button--secondary"
+                disabled={pending}
+                onClick={() => setConfirmDelete(false)}
+                type="button"
+              >
+                取消
+              </button>
+            </span>
+          )}
+        </div>
       </header>
 
       <div className="component-detail__grid">
@@ -370,38 +738,118 @@ function ComponentDetail({ item }: { item: ComponentCatalogItem }) {
               <dd>{descriptor.configSchema ?? '未声明'}</dd>
             </div>
             <div>
-              <dt>敏感字段</dt>
-              <dd>Descriptor 未携带密钥原文；敏感值仅允许使用 Keychain 引用。</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section>
-          <h3>Adapter / Fork 状态</h3>
-          <dl className="fact-list">
-            <div>
-              <dt>兼容等级</dt>
-              <dd>{compatibilityLabels[descriptor.compatibility.level]}</dd>
-            </div>
-            <div>
-              <dt>验证等级</dt>
-              <dd>{validationLabels[descriptor.compatibility.validation]}</dd>
-            </div>
-            <div>
-              <dt>Runtime Adapter</dt>
-              <dd>{descriptor.runtimeAdapter ?? '未声明'}</dd>
-            </div>
-            <div>
-              <dt>补丁 / Fork</dt>
+              <dt>权限</dt>
               <dd>
-                {descriptor.compatibility.level === 'fork'
-                  ? '需要独立 Fork 与补丁证据，当前未验证前保持阻断。'
-                  : '当前 Descriptor 未声明独立补丁集。'}
+                {descriptor.permissions?.length
+                  ? descriptor.permissions
+                      .map(({ scope, required }) => `${scope}${required ? '（必需）' : ''}`)
+                      .join('、')
+                  : '未声明额外权限'}
+              </dd>
+            </div>
+            <div>
+              <dt>Keychain 引用</dt>
+              <dd>
+                {descriptor.secretReferences?.length
+                  ? descriptor.secretReferences.map(({ name }) => name).join('、')
+                  : '未声明；Descriptor 不允许密钥原文'}
               </dd>
             </div>
           </dl>
         </section>
       </div>
+
+      <section>
+        <h3>可解释的兼容性评估</h3>
+        {item.assessment ? (
+          <div className="compatibility-assessment">
+            <p>
+              <strong>{compatibilityAssessmentLabels[item.assessment.status]}</strong>
+              <span>
+                {new Date(item.assessment.checkedAt).toLocaleString('zh-CN')} ·{' '}
+                {item.assessment.method === 'trusted-runtime-v1'
+                  ? '受信运行验证'
+                  : '静态 Descriptor 评估'}
+              </span>
+            </p>
+            <p>{item.assessment.explanation}</p>
+            <ul>
+              {item.assessment.evidence.map((evidence, index) => (
+                <li key={`${evidence.kind}-${index}`}>
+                  <strong>
+                    {evidence.status === 'passed'
+                      ? '已通过'
+                      : evidence.status === 'blocked'
+                        ? '阻断'
+                        : evidence.status === 'missing'
+                          ? '缺失'
+                          : '需人工决定'}
+                  </strong>
+                  <span>{evidence.detail}</span>
+                </li>
+              ))}
+            </ul>
+            {item.assessment.blockers.length > 0 ? (
+              <div role="alert">
+                <strong>阻断原因</strong>
+                <ul>
+                  {item.assessment.blockers.map((blocker) => (
+                    <li key={blocker}>{blocker}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="compatibility-actions">
+              <strong>建议下一步</strong>
+              <ol>
+                {item.assessment.suggestedActions.map((action) => (
+                  <li key={action.id}>
+                    <div>
+                      <strong>{action.label}</strong>
+                      <p>{action.description}</p>
+                    </div>
+                    {action.presentation === 'external-step' ? (
+                      <details>
+                        <summary>{action.label}</summary>
+                        <p>{action.externalStep}</p>
+                      </details>
+                    ) : (
+                      <button
+                        aria-busy={
+                          action.action === 'recheck-static' &&
+                          pendingOperation?.endsWith(':recheck')
+                            ? true
+                            : undefined
+                        }
+                        className="button button--secondary"
+                        disabled={pending || !action.enabled}
+                        onClick={() => executeAssessmentAction(action)}
+                        type="button"
+                      >
+                        {action.action === 'recheck-static' &&
+                        pendingOperation?.endsWith(':recheck')
+                          ? '正在静态检查…'
+                          : action.label}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              {runtimePending ? (
+                <button
+                  className="button button--secondary"
+                  onClick={() => void onCancelRuntime()}
+                  type="button"
+                >
+                  取消运行验证
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p>将组件加入 Agent Stack 后，系统会生成静态评估。</p>
+        )}
+      </section>
 
       <section>
         <h3>提供与依赖的能力</h3>
@@ -438,21 +886,101 @@ function ComponentDetail({ item }: { item: ComponentCatalogItem }) {
         </div>
       </section>
 
-      <section>
-        <h3>契约测试与来源证据</h3>
-        {descriptor.evidence.length > 0 ? (
-          <ol className="component-evidence-list">
-            {descriptor.evidence.map((evidence, index) => (
-              <li key={`${evidence.kind}-${index}`}>
-                <span>{evidence.kind}</span>
-                <p>{evidence.detail}</p>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p>尚无证据。声明本身不授予执行权限。</p>
-        )}
-      </section>
+      <details className="engineering-evidence">
+        <summary>查看工程证据</summary>
+        <p>这里包含完整 Descriptor、Runtime Adapter、Receipt、Artifact 与审计记录。</p>
+        <button
+          className="button button--secondary"
+          disabled={pending}
+          onClick={() => setEditing((value) => !value)}
+          type="button"
+        >
+          <PencilSimple aria-hidden="true" size={17} />
+          {editing ? '取消更新' : '更新完整 Descriptor'}
+        </button>
+
+        {editing ? (
+          <DescriptorEditor
+            descriptor={descriptor}
+            onCancel={() => setEditing(false)}
+            onSave={onUpdate}
+            pending={pending}
+          />
+        ) : null}
+
+        <section>
+          <h3>Adapter / Fork 状态</h3>
+          <dl className="fact-list">
+            <div>
+              <dt>兼容等级</dt>
+              <dd>{compatibilityLabels[descriptor.compatibility.level]}</dd>
+            </div>
+            <div>
+              <dt>验证等级</dt>
+              <dd>{validationLabels[descriptor.compatibility.validation]}</dd>
+            </div>
+            <div>
+              <dt>Runtime Adapter</dt>
+              <dd>{descriptor.runtimeAdapter ?? '未声明'}</dd>
+            </div>
+            <div>
+              <dt>补丁 / Fork</dt>
+              <dd>
+                {descriptor.compatibility.level === 'fork'
+                  ? '需要独立 Fork 与补丁证据，当前未验证前保持阻断。'
+                  : '当前 Descriptor 未声明独立补丁集。'}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section>
+          <h3>契约测试与来源证据</h3>
+          {descriptor.evidence.length > 0 ? (
+            <ol className="component-evidence-list">
+              {descriptor.evidence.map((evidence, index) => (
+                <li key={`${evidence.kind}-${index}`}>
+                  <span>{evidence.kind}</span>
+                  <p>
+                    {evidence.detail}
+                    {evidence.recordedAt
+                      ? ` ${new Date(evidence.recordedAt).toLocaleString('zh-CN')}`
+                      : ''}
+                    {evidence.supersededAt
+                      ? ` · 已于 ${new Date(evidence.supersededAt).toLocaleString('zh-CN')} 因契约变更失效`
+                      : ''}
+                    {evidence.receiptId ? ` · Receipt ${evidence.receiptId}` : ''}
+                    {evidence.artifact
+                      ? ` · Artifact ${evidence.artifact.name} (${evidence.artifact.contentHash.slice(0, 12)}…)`
+                      : ''}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>尚无证据。声明本身不授予执行权限。</p>
+          )}
+        </section>
+
+        <section>
+          <h3>处置审计记录</h3>
+          {item.auditTrail?.length ? (
+            <ol className="component-evidence-list">
+              {[...item.auditTrail].reverse().map((entry) => (
+                <li key={entry.id}>
+                  <span>{entry.action}</span>
+                  <p>
+                    {entry.summary} · {entry.actor === 'system' ? '系统' : '用户'} ·{' '}
+                    {new Date(entry.recordedAt).toLocaleString('zh-CN')}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>旧组件尚无处置审计记录；下次结构编辑、检查、归档或恢复后开始记录。</p>
+          )}
+        </section>
+      </details>
 
       <section>
         <h3>当前使用方与受影响版本</h3>

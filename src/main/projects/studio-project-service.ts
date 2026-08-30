@@ -3,41 +3,79 @@ import path from 'node:path'
 import { StudioCore } from '../../core/studio-core'
 import { stableHash } from '../../core/project-model'
 import type { ComponentDescriptor } from '../../shared/component'
+import type { ExecutionMode } from '../../shared/agent'
+import { builtInComponents } from '../components/built-in-components'
 import { studioProjectStateSchema, type StudioProjectState } from '../../shared/studio-project'
 import type { ComponentService } from '../components/component-service'
 import type { ProjectIndexRepository } from '../persistence/project-index-repository'
 import type { ProjectExportResult } from '../../shared/agent-stack-package'
+import type { AgentRepository } from '../persistence/agent-repository'
+import {
+  isProjectAgentVersionReference,
+  type AgentVersion,
+  type MaterializedAgentVersion,
+} from '../../shared/agent-detail'
+import type { TrustedCompatibilityRuntimeGateway } from '../../core/trusted-compatibility-runtime'
+import { StudioCoreError } from '../../core/project-errors'
+import type { AgentProfile } from '../../shared/agent-profile'
+import type { HarnessId } from '../../shared/native-agent'
+import type { ProjectModelConfiguration } from '../../core/project-model'
+import type { ModelAuthView } from '../../shared/model-auth-ipc'
+
+interface ProjectModelAuthReadiness {
+  view(): Promise<ModelAuthView>
+}
 
 export class StudioProjectService {
   readonly #core: StudioCore
   readonly #index: ProjectIndexRepository
   readonly #components: ComponentService
+  readonly #agents: AgentRepository | null
   readonly #cliPath: string
+  readonly #compatibilityRuntime: TrustedCompatibilityRuntimeGateway | null
   #activeRoot: string | null = null
   #watcher: FSWatcher | null = null
   #watchedPath: string | null = null
   #changeListeners = new Set<() => void>()
   #watchTimer: NodeJS.Timeout | undefined
   #pendingRecoveryNotice = false
+  #detectingChange = false
+  #detectAgain = false
+  #lastNotifiedHash: string | null = null
+  #notifiedUnreadable = false
+  #activeAgentId: string | null = null
+  #cachedState: StudioProjectState | null = null
+  #pendingAgentId: string | undefined
+  #compatibilityValidationControllers = new Map<string, AbortController>()
+  #modelAuth: ProjectModelAuthReadiness | null = null
 
   constructor(options: {
     core?: StudioCore
     index: ProjectIndexRepository
     components: ComponentService
+    agents?: AgentRepository
     cliPath: string
+    compatibilityRuntime?: TrustedCompatibilityRuntimeGateway
   }) {
     this.#core = options.core ?? new StudioCore()
     this.#index = options.index
     this.#components = options.components
+    this.#agents = options.agents ?? null
     this.#cliPath = options.cliPath
+    this.#compatibilityRuntime = options.compatibilityRuntime ?? null
     const latest = this.#index.latest()
     if (latest) this.#activeRoot = path.dirname(latest.projectPath)
+  }
+
+  connectModelAuth(modelAuth: ProjectModelAuthReadiness): void {
+    this.#modelAuth = modelAuth
   }
 
   async current(changedExternally = false): Promise<StudioProjectState> {
     if (!this.#activeRoot) {
       return studioProjectStateSchema.parse({
         projectPath: null,
+        localAgentId: null,
         project: null,
         validation: null,
         integrity: null,
@@ -50,6 +88,8 @@ export class StudioProjectService {
     const recovered = result.recovered || this.#pendingRecoveryNotice
     this.#pendingRecoveryNotice = false
     this.#index.touch(result.path, result.project)
+    this.#lastNotifiedHash = null
+    this.#notifiedUnreadable = false
     if (result.migrated) {
       this.#index.recordMaintenance('project-migration', result.project.id, {
         path: result.path,
@@ -60,8 +100,13 @@ export class StudioProjectService {
       this.#index.recordMaintenance('project-recovery', result.project.id, { path: result.path })
     }
     this.#startWatching(result.path)
-    return studioProjectStateSchema.parse({
+    const link =
+      this.#agents?.ensureProjectAgent(result.project, result.path, this.#pendingAgentId) ?? null
+    this.#pendingAgentId = undefined
+    this.#activeAgentId = link?.agentId ?? null
+    const state = studioProjectStateSchema.parse({
       projectPath: result.path,
+      localAgentId: link?.agentId ?? null,
       project: result.project,
       validation: this.#core.validate(result.project),
       integrity: result.integrity,
@@ -69,6 +114,63 @@ export class StudioProjectService {
       changedExternally,
       cliPath: this.#cliPath,
     })
+    this.#cachedState = state
+    return state
+  }
+
+  async updateMetadata(input: {
+    name: string
+    description: string
+    executionMode: ExecutionMode
+    expectedRevision: number
+  }): Promise<StudioProjectState> {
+    await this.#core.updateProjectMetadata(this.#requireRoot(), input, {
+      expectedRevision: input.expectedRevision,
+    })
+    return this.current()
+  }
+
+  async updateProfile(
+    profile: AgentProfile,
+    expectedRevision: number,
+  ): Promise<StudioProjectState> {
+    await this.#core.updateAgentProfile(this.#requireRoot(), profile, { expectedRevision })
+    return this.current()
+  }
+
+  async selectHarness(harnessId: HarnessId, expectedRevision: number): Promise<StudioProjectState> {
+    await this.#core.selectKnownHarness(this.#requireRoot(), harnessId, { expectedRevision })
+    return this.current()
+  }
+
+  async updateModelConfiguration(
+    modelConfiguration: ProjectModelConfiguration,
+    expectedRevision: number,
+  ): Promise<StudioProjectState> {
+    await this.#core.updateModelConfiguration(this.#requireRoot(), modelConfiguration, {
+      expectedRevision,
+    })
+    return this.current()
+  }
+
+  async summary(): Promise<StudioProjectState> {
+    if (!this.#activeRoot) return this.current()
+    const result = await this.#core.inspectProject(this.#activeRoot)
+    this.#startWatching(result.path)
+    const link = this.#agents?.ensureProjectAgent(result.project, result.path) ?? null
+    this.#activeAgentId = link?.agentId ?? null
+    const state = studioProjectStateSchema.parse({
+      projectPath: result.path,
+      localAgentId: link?.agentId ?? null,
+      project: result.project,
+      validation: this.#core.validate(result.project),
+      integrity: result.integrity,
+      recovered: result.recovered || this.#pendingRecoveryNotice,
+      changedExternally: false,
+      cliPath: this.#cliPath,
+    })
+    this.#cachedState = state
+    return state
   }
 
   async open(rootPath: string): Promise<StudioProjectState> {
@@ -80,10 +182,27 @@ export class StudioProjectService {
     return this.current()
   }
 
-  async init(rootPath: string): Promise<StudioProjectState> {
-    const result = await this.#core.initProject(rootPath, {
-      name: path.basename(path.resolve(rootPath)),
-    })
+  async init(
+    rootPath: string,
+    input?: {
+      name: string
+      description?: string
+      executionMode?: Parameters<StudioCore['initProject']>[1]['executionMode']
+    },
+    preferredAgentId?: string,
+  ): Promise<StudioProjectState> {
+    this.#pendingAgentId = preferredAgentId
+    let result
+    try {
+      result = await this.#core.initProject(rootPath, {
+        name: input?.name ?? path.basename(path.resolve(rootPath)),
+        description: input?.description,
+        executionMode: input?.executionMode,
+      })
+    } catch (error) {
+      this.#pendingAgentId = undefined
+      throw error
+    }
     this.#activeRoot = path.dirname(result.path)
     this.#index.touch(result.path, result.project)
     this.#startWatching(result.path)
@@ -117,6 +236,86 @@ export class StudioProjectService {
   async archive(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
     await this.#core.archiveComponent(this.#requireRoot(), componentId, { expectedRevision })
     return this.current()
+  }
+
+  async restore(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
+    await this.#core.restoreComponent(this.#requireRoot(), componentId, { expectedRevision })
+    return this.current()
+  }
+
+  async componentSourcePath(componentId: string): Promise<string | null> {
+    const state = await this.current()
+    if (!state.project) throw new StudioCoreError('PROJECT_NOT_FOUND', '请先打开 Studio 项目。')
+    if (!state.project.components.some(({ id }) => id === componentId)) {
+      throw new StudioCoreError('COMPONENT_NOT_FOUND', '当前项目中不存在该组件。')
+    }
+    return this.#index.componentPath(state.project.id, componentId)
+  }
+
+  async recheck(
+    componentId: string,
+    expectedRevision: number,
+    selectedSourcePath?: string,
+  ): Promise<StudioProjectState> {
+    const state = await this.current()
+    if (!state.project) throw new StudioCoreError('PROJECT_NOT_FOUND', '请先打开 Studio 项目。')
+    const sourcePath =
+      selectedSourcePath ?? this.#index.componentPath(state.project.id, componentId)
+    if (!sourcePath) {
+      throw new StudioCoreError('COMPONENT_NOT_FOUND', '当前 Mac 没有该组件的本地来源路径。', {
+        suggestedActions: [{ description: '使用“导入本地组件”重新选择来源目录。' }],
+      })
+    }
+    await this.#core.updateComponent(this.#requireRoot(), componentId, {
+      expectedRevision,
+      sourcePath,
+    })
+    this.#index.setComponentPath(state.project.id, componentId, sourcePath)
+    return this.current()
+  }
+
+  async contractTest(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
+    await this.#core.runComponentContractTest(this.#requireRoot(), componentId, {
+      expectedRevision,
+    })
+    return this.current()
+  }
+
+  async runtimeValidate(
+    componentId: string,
+    expectedRevision: number,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<StudioProjectState> {
+    if (!this.#compatibilityRuntime) {
+      throw new StudioCoreError('UNSAFE_SOURCE', '受信兼容性 Runtime 未配置。')
+    }
+    if (this.#compatibilityValidationControllers.has(componentId)) {
+      throw new StudioCoreError('REVISION_CONFLICT', '该组件已在进行运行验证。')
+    }
+    const controller = new AbortController()
+    const forwardAbort = () => controller.abort()
+    signal?.addEventListener('abort', forwardAbort, { once: true })
+    this.#compatibilityValidationControllers.set(componentId, controller)
+    try {
+      await this.#core.runTrustedComponentValidation(
+        this.#requireRoot(),
+        componentId,
+        this.#compatibilityRuntime,
+        { expectedRevision, timeoutMs, signal: controller.signal },
+      )
+      return this.current()
+    } finally {
+      signal?.removeEventListener('abort', forwardAbort)
+      this.#compatibilityValidationControllers.delete(componentId)
+    }
+  }
+
+  cancelRuntimeValidation(componentId: string): boolean {
+    const controller = this.#compatibilityValidationControllers.get(componentId)
+    if (!controller) return false
+    controller.abort()
+    return true
   }
 
   async delete(componentId: string, expectedRevision: number): Promise<StudioProjectState> {
@@ -205,19 +404,157 @@ export class StudioProjectService {
   }
 
   async freeze(expectedRevision: number): Promise<StudioProjectState> {
+    await this.#assertModelReady()
     await this.#core.freezeVersion(this.#requireRoot(), { expectedRevision })
     return this.current()
+  }
+
+  async freezeForAgent(agentId: string): Promise<AgentVersion> {
+    const state = await this.current()
+    if (!state.project || state.localAgentId !== agentId) {
+      throw new Error('请先切换到该 Agent 绑定的 Studio 项目。')
+    }
+    await this.#assertModelReady()
+    const frozen = await this.#core.freezeVersion(this.#requireRoot(), {
+      expectedRevision: state.project.revision,
+    })
+    if (!this.#agents) throw new Error('本机 Agent 引用存储不可用。')
+    const version = this.#agents.createProjectVersionReference(
+      agentId,
+      frozen.result.project,
+      frozen.version,
+    )
+    await this.current()
+    return version
+  }
+
+  async nativeVersionVerified(agentId: string, agentVersionId: string): Promise<boolean> {
+    const state = await this.current()
+    if (!state.project || !state.projectPath || state.localAgentId !== agentId) return false
+    const version = state.project.versions.find(({ id }) => id === agentVersionId)
+    if (!version) return false
+    if (!version.snapshot.modelConfiguration || !this.#modelAuth) return false
+    const view = await this.#modelAuth.view()
+    return (
+      view.readiness.ready &&
+      JSON.stringify(view.selection) === JSON.stringify(version.snapshot.modelConfiguration)
+    )
+  }
+
+  async #assertModelReady(): Promise<void> {
+    if (!this.#modelAuth) {
+      throw new StudioCoreError(
+        'HARNESS_AUTHENTICATION_REQUIRED',
+        '本机模型就绪服务不可用，无法证明 Agent 可运行。',
+        { suggestedActions: [{ description: '重启 Studio 后重新检查模型与认证。' }] },
+      )
+    }
+    const readiness = (await this.#modelAuth.view()).readiness
+    if (readiness.ready) return
+    const blocker = readiness.blockers[0]
+    throw new StudioCoreError(
+      blocker?.code === 'stack-incompatible'
+        ? 'STACK_INVALID'
+        : blocker?.code === 'harness-not-installed' ||
+            blocker?.code === 'harness-version-unsupported' ||
+            blocker?.code === 'harness-not-selected'
+          ? 'HARNESS_NOT_AVAILABLE'
+          : 'HARNESS_AUTHENTICATION_REQUIRED',
+      blocker?.message ?? 'Agent 尚未完成模型认证和最小模型验证。',
+      {
+        details: { modelReadiness: readiness.state, blockers: readiness.blockers },
+        suggestedActions: readiness.blockers.map(({ recoveryAction }) => ({
+          description: recoveryAction,
+        })),
+      },
+    )
+  }
+
+  activeComposition(agentId: string): StudioProjectState | null {
+    if (this.#activeAgentId !== agentId || !this.#cachedState?.project) return null
+    return this.#cachedState
+  }
+
+  activeAgentId(): string | null {
+    return this.#activeAgentId
+  }
+
+  deactivateIfProject(projectId: string, rootPath?: string): void {
+    const cachedProjectMatches = this.#cachedState?.project?.id === projectId
+    const activeRootMatches = rootPath ? this.#activeRoot === path.resolve(rootPath) : false
+    if (!cachedProjectMatches && !activeRootMatches) return
+    this.#watcher?.close()
+    this.#watcher = null
+    this.#watchedPath = null
+    this.#activeRoot = null
+    this.#activeAgentId = null
+    this.#cachedState = null
+    this.#lastNotifiedHash = null
+  }
+
+  materializeVersion(agentId: string, version: AgentVersion): MaterializedAgentVersion {
+    if (!isProjectAgentVersionReference(version.snapshot)) {
+      return { ...version, snapshot: version.snapshot }
+    }
+    const reference = version.snapshot
+    const state = this.activeComposition(agentId)
+    const project = state?.project
+    if (!project || project.id !== reference.projectId) {
+      throw new Error('请先切换到该 Agent Version 绑定的项目。')
+    }
+    const projectVersion = project.versions.find(({ id }) => id === reference.projectVersionId)
+    if (!projectVersion || projectVersion.contentHash !== version.contentHash) {
+      throw new Error('本地 Agent Version 引用与项目中的不可变 Version 不一致。')
+    }
+    const componentsById = new Map(
+      projectVersion.snapshot.components.map((component) => [component.id, component]),
+    )
+    return {
+      ...version,
+      snapshot: {
+        agent: {
+          id: agentId,
+          name: projectVersion.snapshot.project.name,
+          description: project.description,
+          executionMode: projectVersion.snapshot.stack.executionMode,
+        },
+        stack: {
+          executionMode: projectVersion.snapshot.stack.executionMode,
+          revision: reference.projectRevision + 1,
+          components: projectVersion.snapshot.stack.componentIds.map((componentId) => {
+            const component = componentsById.get(componentId)
+            if (!component) throw new Error('项目 Version 引用的组件快照不完整。')
+            return {
+              componentId,
+              contractId: component.descriptor.id,
+              version: component.descriptor.version,
+            }
+          }),
+          capabilityOwners: projectVersion.snapshot.stack.capabilityOwners,
+        },
+        ...(projectVersion.snapshot.profile ? { profile: projectVersion.snapshot.profile } : {}),
+      },
+    }
   }
 
   exportTo(destinationPath: string): Promise<ProjectExportResult> {
     return this.#core.exportProjectPackage(this.#requireRoot(), destinationPath)
   }
 
-  loadDemoData() {
-    const result = this.#components.loadDemoData()
+  async loadDemoData() {
+    const current = await this.current()
+    if (!current.project) throw new Error('请先打开或创建 Agent 项目。')
+    const result = await this.#core.installDeclaredComponents(
+      this.#requireRoot(),
+      builtInComponents,
+      { expectedRevision: current.project.revision },
+    )
     this.#index.setPreference('demo-data-loaded', true)
-    this.#index.recordMaintenance('demo-data-load', null, { componentCount: result.length })
-    return result
+    this.#index.recordMaintenance('demo-data-load', result.project.id, {
+      componentCount: result.project.components.length,
+    })
+    await this.current()
+    return this.#components.list()
   }
 
   onChanged(listener: () => void): () => void {
@@ -230,6 +567,9 @@ export class StudioProjectService {
     this.#watcher?.close()
     this.#watcher = null
     this.#watchedPath = null
+    this.#changeListeners.clear()
+    this.#cachedState = null
+    this.#activeAgentId = null
   }
 
   #requireRoot(): string {
@@ -242,23 +582,84 @@ export class StudioProjectService {
     this.#watcher?.close()
     this.#watchedPath = projectPath
     const projectName = path.basename(projectPath)
-    this.#watcher = watch(path.dirname(projectPath), { persistent: false }, (_event, fileName) => {
+    const watcher = watch(path.dirname(projectPath), { persistent: false }, (_event, fileName) => {
       if (fileName !== null && String(fileName) !== projectName) return
       if (this.#watchTimer) clearTimeout(this.#watchTimer)
-      this.#watchTimer = setTimeout(() => void this.#detectExternalChange(projectPath), 120)
+      this.#watchTimer = setTimeout(() => {
+        this.#watchTimer = undefined
+        void this.#detectExternalChange(projectPath)
+      }, 120)
+    })
+    this.#watcher = watcher
+    watcher.on('error', () => {
+      if (this.#watcher !== watcher) return
+      watcher.close()
+      this.#watcher = null
+      this.#watchedPath = null
+      this.#notifyUnreadable()
     })
   }
 
   async #detectExternalChange(projectPath: string): Promise<void> {
+    if (this.#detectingChange) {
+      this.#detectAgain = true
+      return
+    }
+    this.#detectingChange = true
     try {
-      const result = await this.#core.inspectProject(projectPath)
-      if (result.recovered) this.#pendingRecoveryNotice = true
-      const indexed = this.#index.findByPath(result.path)
-      const currentHash = stableHash(result.project)
-      if (indexed?.lastSeenHash === currentHash) return
-      for (const listener of this.#changeListeners) listener()
-    } catch {
-      for (const listener of this.#changeListeners) listener()
+      do {
+        this.#detectAgain = false
+        try {
+          const result = await this.#core.inspectProject(projectPath)
+          if (result.recovered) this.#pendingRecoveryNotice = true
+          const indexed = this.#index.findByPath(result.path)
+          const currentHash = stableHash(result.project)
+          this.#notifiedUnreadable = false
+          if (indexed?.lastSeenHash === currentHash) {
+            this.#lastNotifiedHash = null
+            continue
+          }
+          if (this.#lastNotifiedHash === currentHash) continue
+          // Refresh the shared project projection before notifying Renderer subscribers. Do not
+          // call current() here: that would consume a pending backup-recovery notice before GUI
+          // readers can display it.
+          this.#index.touch(result.path, result.project)
+          const link = this.#agents?.ensureProjectAgent(result.project, result.path) ?? null
+          this.#activeAgentId = link?.agentId ?? this.#activeAgentId
+          this.#cachedState = studioProjectStateSchema.parse({
+            projectPath: result.path,
+            localAgentId: this.#activeAgentId,
+            project: result.project,
+            validation: this.#core.validate(result.project),
+            integrity: result.integrity,
+            recovered: result.recovered || this.#pendingRecoveryNotice,
+            changedExternally: true,
+            cliPath: this.#cliPath,
+          })
+          this.#lastNotifiedHash = currentHash
+          this.#notifyChanged()
+        } catch {
+          this.#notifyUnreadable()
+        }
+      } while (this.#detectAgain)
+    } finally {
+      this.#detectingChange = false
+    }
+  }
+
+  #notifyUnreadable(): void {
+    if (this.#notifiedUnreadable) return
+    this.#notifiedUnreadable = true
+    this.#notifyChanged()
+  }
+
+  #notifyChanged(): void {
+    for (const listener of this.#changeListeners) {
+      try {
+        listener()
+      } catch {
+        // A faulty UI listener must not terminate filesystem monitoring.
+      }
     }
   }
 }

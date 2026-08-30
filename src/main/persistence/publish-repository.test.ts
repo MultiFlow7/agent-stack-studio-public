@@ -7,6 +7,7 @@ import { createRunFixture } from '../../test/run-fixture'
 import { buildPublishPackage, publishIdempotencyKey } from '../domain/publish-package'
 import { localContractTestTargetId } from '../../shared/publish'
 import { PublishRepository } from './publish-repository'
+import { CURRENT_SCHEMA_VERSION } from './migrations'
 
 const directories: string[] = []
 
@@ -69,7 +70,7 @@ describe('PublishRepository', () => {
     const migrated = new Database(databasePath)
     expect(migrated.prepare('SELECT MAX(version) AS version FROM schema_migrations').get()).toEqual(
       {
-        version: 8,
+        version: CURRENT_SCHEMA_VERSION,
       },
     )
     migrated.close()

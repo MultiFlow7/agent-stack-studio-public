@@ -1,7 +1,7 @@
 import { ArrowClockwise, CheckCircle, Stack, WarningCircle } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { StackState } from '../../../shared/runtime-plan'
-import { capabilityLabel, validationLabels } from '../copy'
+import { capabilityLabel, stackStatusLabels, validationLabels } from '../copy'
 import { RemediationTaskList } from './RemediationTaskList'
 
 interface CapabilityViewProps {
@@ -143,7 +143,7 @@ export function CapabilityView({ agentId, onOpenStack }: CapabilityViewProps) {
           ) : (
             <WarningCircle aria-hidden="true" size={16} weight="fill" />
           )}
-          {stack.compilation.status === 'ready' ? 'Runtime Plan 已就绪' : '存在阻断项'}
+          Stack/兼容性 {stackStatusLabels[stack.compilation.status]}
         </span>
       </header>
 
@@ -155,16 +155,16 @@ export function CapabilityView({ agentId, onOpenStack }: CapabilityViewProps) {
               <code>{capability}</code>
             </div>
             <div className="capability-map-list__owner">
-              <span>当前 Owner</span>
+              <span>当前实现</span>
               <strong>{owner?.componentName ?? '需要明确选择'}</strong>
               <small>
                 {owner
                   ? `${owner.implementation} · ${validationLabels[owner.validation]}`
-                  : `${candidates.length} 个 Provider 存在重叠`}
+                  : `${candidates.length} 个候选实现需要取舍`}
               </small>
             </div>
             <details>
-              <summary>{candidates.length} 个 Provider</summary>
+              <summary>{candidates.length} 个候选实现</summary>
               <ul>
                 {candidates.map((candidate) => (
                   <li key={candidate.componentId}>

@@ -71,4 +71,14 @@ M5 先建立不依赖真实账号的 Connector 纵向切片：
 - SQLite v6 保存本地 Agent ID 与目标 Agent ID 映射、每次尝试的 Receipt、发布包哈希和幂等键。成功记录会被复用；失败记录保留并可以用相同幂等键重试。
 - 中文发布面板展示目标、包含/排除内容、预检结果、确认复选框、Receipt 和身份映射。未经明确确认不能发布。
 
-当前可运行 Adapter 是 `MulticaContractTestPublisher`，它仅在本地验证合约并生成测试 Receipt，不连接网络、不创建真实 Multica Agent，界面也不将其表述为真实发布。真实 Transport 保持“需要产品决策”状态，待确认 Multica 官方认证、CLI/API 和版本策略后再实现。
+`MulticaContractTestPublisher` 只保留为自动化测试依赖，不再出现在普通 GUI 目标。真实产品目标由 ADR 0013 的官方 CLI Connector 提供；没有 CLI、登录或匹配 Runtime 时返回字段级阻断，不生成成功 Receipt。
+
+## 8. M34 真实发布收束
+
+M34 必须以 Multica 当时可验证的官方认证与发布能力替换 Contract Test 目标。GUI 与 `studio publish validate|publish|status` 从同一冻结 `.agent-stack` Version 物化相同 payload、规范 JSON SHA-256 和幂等键；首次创建与重试不能产生重复远端 Agent。
+
+Connector 只接收已经过发布边界 Schema 的值，不得自行遍历项目目录、SQLite、聊天、Run 日志、Artifact 或 Keychain。真实 API/CLI、认证字段或版本语义与本文假设不同，需要先记录精确差异并请求产品决策；在凭证或官方接口不可用时，预检可以完成但发布必须保持阻断，不能复用本地 Contract Test Receipt 冒充远端成功。
+
+M34 已核验 Multica v0.4.32 的 `version/runtime list/agent list|get|create|update` JSON 契约。Studio 复用 `multica login` 的官方认证，首次发布选择在线且 provider 与 Harness 一致的 Runtime。官方没有 Agent Version 或 create 幂等键，因此 Studio 将 Version ID/hash 标记编译到 instructions，通过 SQLite 映射、create 前 hash 查找、名称冲突后二次查找和映射失效拒绝自动创建实现可恢复幂等。远端 `status` 必须重新执行 `agent get` 比较标记。
+
+Native Harness 发布包声明 `nativeHost: true` 和 `network: runtime-managed`，不携带 Cordis 版本要求；只有旧 Studio Runtime 兼容包保留 Cordis 要求。

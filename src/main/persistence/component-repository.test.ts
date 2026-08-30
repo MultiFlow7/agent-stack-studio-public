@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { builtInComponents } from '../components/built-in-components'
 import { AgentRepository } from './agent-repository'
 import { ComponentRepository } from './component-repository'
+import { CURRENT_SCHEMA_VERSION } from './migrations'
 
 const temporaryDirectories: string[] = []
 
@@ -58,16 +59,9 @@ describe('ComponentRepository', () => {
     const migrated = new Database(databasePath)
     expect(
       migrated.prepare('SELECT version FROM schema_migrations ORDER BY version').all(),
-    ).toEqual([
-      { version: 1 },
-      { version: 2 },
-      { version: 3 },
-      { version: 4 },
-      { version: 5 },
-      { version: 6 },
-      { version: 7 },
-      { version: 8 },
-    ])
+    ).toEqual(
+      Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({ version: index + 1 })),
+    )
     expect(
       migrated
         .prepare(
@@ -97,6 +91,8 @@ describe('ComponentRepository', () => {
     components.selectOwner(agent.id, 'prompt-policy', x.id)
     const resolved = components.selectOwner(agent.id, 'context-builder', y.id)
     expect(resolved.compilation.status).toBe('ready')
+    const duplicateOwner = components.selectOwner(agent.id, 'context-builder', y.id)
+    expect(duplicateOwner.revision).toBe(resolved.revision)
 
     const version = agents.createVersion(agent.id)
     expect(version.snapshot.stack.components).toHaveLength(2)

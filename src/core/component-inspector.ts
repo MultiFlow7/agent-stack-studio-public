@@ -21,6 +21,28 @@ const MAX_TREE_ENTRIES = 400
 const MAX_TREE_DEPTH = 4
 const manifestNames = ['agent-stack.component.json', 'component.json'] as const
 
+export function sanitizeGitRemote(value: string | null): string | null {
+  const candidate = value?.trim()
+  if (!candidate || candidate.length > 2_000) return null
+  const scp = candidate.includes('://')
+    ? null
+    : /^(?:[^@\s]+@)?([A-Za-z0-9.-]+):([^\s]+)$/.exec(candidate)
+  if (scp?.[1] && scp[2] && !path.isAbsolute(candidate)) {
+    return `ssh://${scp[1]}/${scp[2].replace(/^\/+/, '')}`
+  }
+  try {
+    const url = new URL(candidate)
+    if (!['http:', 'https:', 'ssh:', 'git:'].includes(url.protocol) || !url.hostname) return null
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 export const componentInspectionSchema = z
   .object({
     source: componentSourceSnapshotSchema,
@@ -105,11 +127,12 @@ async function inspectGit(root: string) {
       return null
     }
   }
-  const [commit, remote, statusText] = await Promise.all([
+  const [commit, rawRemote, statusText] = await Promise.all([
     run(['rev-parse', 'HEAD']),
     run(['remote', 'get-url', 'origin']),
     run(['status', '--porcelain=v1', '--untracked-files=normal']),
   ])
+  const remote = sanitizeGitRemote(rawRemote)
   let statusValue: 'clean' | 'modified' | 'untracked' | 'unavailable' = 'unavailable'
   if (statusText !== null) {
     if (statusText.length === 0) statusValue = 'clean'
@@ -163,9 +186,16 @@ function detectedDescriptor(
     compatibility: {
       level: 'unknown',
       validation: 'declared',
-      detail: '未发现显式 Component Manifest，需要用户确认 Descriptor。',
+      detail: '未发现显式 Component Manifest；缺少能力替换边界、契约测试和受信运行证据。',
     },
-    evidence: [{ kind: 'manifest', detail: '由安全静态扫描生成候选 Descriptor。' }],
+    evidence: [
+      {
+        kind: 'static-check',
+        status: 'passed',
+        method: 'safe-static-inspection-v2',
+        detail: '由安全静态检查生成候选 Descriptor，未执行项目代码。',
+      },
+    ],
   })
 }
 
@@ -212,7 +242,9 @@ export async function inspectComponentSource(sourcePath: string): Promise<Compon
     }
   } else {
     descriptor = detectedDescriptor(root, packageManifest)
-    warnings.push('未发现 agent-stack.component.json，已生成需要用户确认的候选 Descriptor。')
+    warnings.push(
+      '未发现 agent-stack.component.json，已生成机器证据不足的候选 Descriptor；用户编辑不能代替技术验证。',
+    )
   }
   if (readmePath) await readSafeText(readmePath)
   if (licensePath) await readSafeText(licensePath)
@@ -267,5 +299,17 @@ export function componentFromInspection(
     archivedAt: existing?.archivedAt ?? null,
     importedAt: existing?.importedAt ?? timestamp,
     updatedAt: timestamp,
+    auditTrail: [
+      ...(existing?.auditTrail ?? []),
+      {
+        id: randomUUID(),
+        action: existing ? 'static-inspected' : 'imported',
+        actor: 'system',
+        summary: existing
+          ? '已重新执行安全静态检查，未执行项目代码。'
+          : '已完成首次安全静态导入，未执行项目代码。',
+        recordedAt: timestamp,
+      },
+    ],
   })
 }

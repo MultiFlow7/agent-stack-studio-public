@@ -16,6 +16,11 @@ async function fixture(contents, executable = true) {
   )
   const cliPath = path.join(root, 'dist', 'cli', 'studio.mjs')
   await writeFile(cliPath, contents)
+  await Promise.all(
+    ['publish-host.mjs', 'model-auth-host.mjs'].map((host) =>
+      writeFile(path.join(root, 'dist', 'cli', host), 'export {}\n'),
+    ),
+  )
   await chmod(cliPath, executable ? 0o755 : 0o644)
   return root
 }

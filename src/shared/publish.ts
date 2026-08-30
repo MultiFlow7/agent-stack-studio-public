@@ -4,12 +4,13 @@ import { capabilityIdSchema } from './component'
 
 export const localContractTestTargetId = 'studio://publishers/multica-contract-test' as const
 export const unconfiguredMulticaTargetId = 'studio://publishers/multica' as const
+export const multicaCliTargetId = 'studio://publishers/multica-cli' as const
 
 export const publishTargetSchema = z
   .object({
-    id: z.enum([localContractTestTargetId, unconfiguredMulticaTargetId]),
+    id: z.enum([localContractTestTargetId, unconfiguredMulticaTargetId, multicaCliTargetId]),
     connector: z.literal('multica'),
-    transport: z.enum(['contract-test', 'unconfigured']),
+    transport: z.enum(['contract-test', 'unconfigured', 'cli']),
     label: z.string().min(1),
     description: z.string().min(1),
     availability: z.enum(['ready', 'decision-required']),
@@ -22,7 +23,7 @@ export const publishPackageSchema = z
     packageVersion: z.literal(1),
     source: z
       .object({
-        studioVersion: z.literal('0.1.0'),
+        studioVersion: z.enum(['0.1.0', '0.9.0']),
         localAgentId: z.uuid(),
         agentVersionId: z.uuid(),
         agentVersionNumber: z.number().int().positive(),
@@ -36,6 +37,43 @@ export const publishPackageSchema = z
         executionMode: executionModeSchema,
       })
       .strict(),
+    profile: z
+      .object({
+        instructions: z.string().max(40_000),
+        memoryMarkdown: z.string().max(120_000),
+        skills: z.array(
+          z
+            .object({
+              id: z.string().min(1).max(64),
+              name: z.string().min(1).max(100),
+              markdown: z.string().max(40_000),
+            })
+            .strict(),
+        ),
+        mcpServers: z.array(
+          z
+            .object({
+              id: z.string().min(1).max(64),
+              name: z.string().min(1).max(100),
+              transport: z.enum(['stdio', 'http']),
+              command: z.string().min(1).max(1_000).nullable(),
+              args: z.array(z.string().max(1_000)).max(40),
+              url: z.url().max(2_000).nullable(),
+            })
+            .strict(),
+        ),
+        toolPolicy: z.enum(['read-only', 'workspace']),
+      })
+      .strict()
+      .optional(),
+    harness: z
+      .object({
+        id: z.enum(['pi', 'openclaw', 'codex']),
+        contractId: z.string().min(1),
+        version: z.string().min(1),
+      })
+      .strict()
+      .optional(),
     stack: z
       .object({
         revision: z.number().int().positive(),
@@ -60,15 +98,32 @@ export const publishPackageSchema = z
     requirements: z
       .object({
         platforms: z.array(z.enum(['darwin-arm64', 'darwin-x64'])).min(1),
-        cordisVersion: z.literal('4.0.0-rc.8'),
-        network: z.literal('denied'),
+        cordisVersion: z.literal('4.0.0-rc.8').optional(),
+        nativeHost: z.literal(true).optional(),
+        network: z.enum(['denied', 'runtime-managed']),
+      })
+      .superRefine((requirements, context) => {
+        if (!requirements.cordisVersion && !requirements.nativeHost) {
+          context.addIssue({
+            code: 'custom',
+            message: '发布包必须声明 Cordis 或 Native Host 运行边界。',
+          })
+        }
       })
       .strict(),
     excludedContent: z
       .array(
-        z.enum(['local-paths', 'keychain-secrets', 'experiment-data', 'run-logs', 'artifacts']),
+        z.enum([
+          'local-paths',
+          'keychain-secrets',
+          'experiment-data',
+          'chat-history',
+          'run-logs',
+          'artifacts',
+        ]),
       )
-      .length(5),
+      .min(5)
+      .max(6),
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict()
@@ -85,6 +140,13 @@ export const publishValidationIssueSchema = z
       'UNSUPPORTED_COMPONENT',
       'SENSITIVE_CONTENT',
       'LOCAL_TEST_ONLY',
+      'MULTICA_CLI_NOT_INSTALLED',
+      'MULTICA_CLI_UNSUPPORTED',
+      'MULTICA_AUTHENTICATION_REQUIRED',
+      'MULTICA_RUNTIME_REQUIRED',
+      'MULTICA_RUNTIME_MISMATCH',
+      'MULTICA_REMOTE_CONFLICT',
+      'CAPABILITY_DEGRADED',
     ]),
     message: z.string().min(1),
   })
@@ -146,6 +208,31 @@ export const publishPreviewSchema = z
   })
   .strict()
 
+export const publishRemoteStatusSchema = z
+  .object({
+    state: z.enum(['not-published', 'in-sync', 'drifted', 'unreachable']),
+    remoteAgentId: z.string().min(1).nullable(),
+    localContentHash: z.string().regex(/^[a-f0-9]{64}$/),
+    remoteContentHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
+    displayName: z.string().min(1).nullable(),
+    checkedAt: z.iso.datetime(),
+    message: z.string().min(1),
+  })
+  .strict()
+
+export const multicaRuntimeSchema = z
+  .object({
+    id: z.uuid(),
+    label: z.string().min(1),
+    provider: z.string().min(1),
+    status: z.string().min(1),
+  })
+  .strict()
+export const multicaRuntimeListSchema = z.array(multicaRuntimeSchema)
+
 export const publishHistorySchema = z
   .object({
     mapping: publishMappingSchema.nullable(),
@@ -159,7 +246,12 @@ export const publishResultSchema = z
 
 export const publishTargetsSchema = z.array(publishTargetSchema)
 export const publishPreviewInputSchema = z
-  .object({ targetId: publishTargetSchema.shape.id, agentId: z.uuid(), agentVersionId: z.uuid() })
+  .object({
+    targetId: publishTargetSchema.shape.id,
+    agentId: z.uuid(),
+    agentVersionId: z.uuid(),
+    runtimeId: z.uuid().optional(),
+  })
   .strict()
 export const publishExecuteInputSchema = publishPreviewInputSchema.extend({
   confirmed: z.literal(true),
@@ -167,6 +259,7 @@ export const publishExecuteInputSchema = publishPreviewInputSchema.extend({
 export const publishHistoryInputSchema = z
   .object({ targetId: publishTargetSchema.shape.id, agentId: z.uuid() })
   .strict()
+export const publishStatusInputSchema = publishPreviewInputSchema
 
 export type PublishTarget = z.infer<typeof publishTargetSchema>
 export type PublishPackage = z.infer<typeof publishPackageSchema>
@@ -176,5 +269,8 @@ export type PublishMapping = z.infer<typeof publishMappingSchema>
 export type PublishPreview = z.infer<typeof publishPreviewSchema>
 export type PublishHistory = z.infer<typeof publishHistorySchema>
 export type PublishResult = z.infer<typeof publishResultSchema>
+export type PublishRemoteStatus = z.infer<typeof publishRemoteStatusSchema>
 export type PublishPreviewInput = z.infer<typeof publishPreviewInputSchema>
 export type PublishExecuteInput = z.infer<typeof publishExecuteInputSchema>
+export type PublishStatusInput = z.infer<typeof publishStatusInputSchema>
+export type MulticaRuntime = z.infer<typeof multicaRuntimeSchema>

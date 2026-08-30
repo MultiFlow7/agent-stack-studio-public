@@ -22,8 +22,8 @@
     "secretPolicy": "reject-local-paths-and-exclude-keychain-local-data"
   },
   "database": {
-    "currentSchemaVersion": 8,
-    "responsibility": "local-index-run-experiment-receipt-artifact-reference"
+    "currentSchemaVersion": 13,
+    "responsibility": "local-index-run-experiment-receipt-artifact-credential-binding-reference"
   },
   "contracts": {
     "domainModel": 1,

@@ -40,7 +40,8 @@ describe('SecretReferencesPanel', () => {
     const user = userEvent.setup()
     render(<SecretReferencesPanel agentId={agentId} />)
 
-    expect(await screen.findByText('尚未配置密钥')).toBeVisible()
+    expect(await screen.findByText('尚无高级密钥引用')).toBeVisible()
+    expect(screen.getByText(/不会让 Agent 或模型变为就绪/)).toBeVisible()
     await user.type(screen.getByLabelText('用途名称'), 'OpenAI API')
     await user.type(screen.getByLabelText('账户标识'), 'openai-api')
     expect(screen.queryByLabelText('密钥原文')).not.toBeInTheDocument()
@@ -52,7 +53,7 @@ describe('SecretReferencesPanel', () => {
       label: 'OpenAI API',
       keychainAccount: 'openai-api',
     })
-    expect(await screen.findByText('已配置')).toBeVisible()
+    expect(await screen.findByText('钥匙串中已保存·未绑定')).toBeVisible()
   })
 
   it('shows restored missing status and requires inline delete confirmation', async () => {
@@ -87,7 +88,7 @@ describe('SecretReferencesPanel', () => {
     const user = userEvent.setup()
     render(<SecretReferencesPanel agentId={agentId} />)
 
-    await screen.findByText('尚未配置密钥')
+    await screen.findByText('尚无高级密钥引用')
     await user.type(screen.getByLabelText('用途名称'), 'Cancelled API')
     await user.type(screen.getByLabelText('账户标识'), 'cancelled-api')
     await user.click(screen.getByRole('button', { name: '打开安全输入并写入' }))

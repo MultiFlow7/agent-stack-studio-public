@@ -1,10 +1,13 @@
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentRepository } from '../persistence/agent-repository'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
 import { WorkspaceService } from '../workspace/workspace-service'
 import { AgentService } from './agent-service'
+import { knownHarnesses } from '../../core/known-harnesses'
+import type { StudioProjectService } from '../projects/studio-project-service'
 
 const temporaryDirectories: string[] = []
 
@@ -17,6 +20,50 @@ afterEach(async () => {
 })
 
 describe('AgentService', () => {
+  it('projects an exact Native Host Driver binding without treating legacy external-harness as Native', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-route-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const service = new AgentService(
+      repository,
+      new WorkspaceService(path.join(directory, 'workspaces')),
+    )
+    const controllerId = knownHarnesses.pi.id
+    const activeComposition = vi.fn(() => ({
+      project: {
+        stack: {
+          executionMode: 'external-harness',
+          componentIds: [controllerId],
+          capabilityOwners: [{ capability: 'execution-controller', componentId: controllerId }],
+        },
+        components: [{ id: controllerId, descriptor: knownHarnesses.pi.descriptor }],
+      },
+    }))
+    service.connectProject({ activeComposition } as unknown as StudioProjectService)
+
+    expect(service.nativeHarness('70000000-0000-4000-8000-000000000001')).toBe('pi')
+    activeComposition.mockReturnValueOnce({
+      project: {
+        stack: {
+          executionMode: 'external-harness',
+          componentIds: [controllerId],
+          capabilityOwners: [{ capability: 'execution-controller', componentId: controllerId }],
+        },
+        components: [
+          {
+            id: controllerId,
+            descriptor: {
+              ...knownHarnesses.pi.descriptor,
+              runtimeAdapter: 'studio://runtime/harness-x',
+            },
+          },
+        ],
+      },
+    })
+    expect(service.nativeHarness('70000000-0000-4000-8000-000000000001')).toBeNull()
+    repository.close()
+  })
+
   it('imports a static scan into a local workspace and creates the first version', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-'))
     temporaryDirectories.push(directory)
@@ -37,7 +84,10 @@ describe('AgentService', () => {
 
     expect(detail.location?.sourceKind).toBe('local-import')
     expect(detail.versions).toHaveLength(1)
-    expect(detail.versions[0]?.snapshot.agent.name).toBe('Evaluation Agent')
+    const snapshot = detail.versions[0]?.snapshot
+    expect(snapshot && !isProjectAgentVersionReference(snapshot) ? snapshot.agent.name : null).toBe(
+      'Evaluation Agent',
+    )
     const workspaceManifest = await readFile(
       path.join(detail.location!.workspacePath, 'workspace.json'),
       'utf8',
@@ -75,6 +125,32 @@ describe('AgentService', () => {
     repository.close()
   })
 
+  it('cancels active Native work for the project before permanent Agent deletion', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-native-delete-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const service = new AgentService(
+      repository,
+      new WorkspaceService(path.join(directory, 'workspaces')),
+    )
+    const agent = await service.create({
+      name: 'Native Agent',
+      description: '',
+      executionMode: 'external-harness',
+    })
+    service.connectProject({
+      activeComposition: () => ({ project: { id: 'project-native-delete' } }),
+    } as unknown as StudioProjectService)
+    const cancelProject = vi.fn(() => 1)
+    service.connectNativeAgent({ cancelProject })
+    service.archive(agent.id)
+
+    await service.delete(agent.id)
+
+    expect(cancelProject).toHaveBeenCalledWith('project-native-delete')
+    repository.close()
+  })
+
   it('blocks new executable work for an archived Agent while keeping it inspectable', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-'))
     temporaryDirectories.push(directory)
@@ -94,6 +170,56 @@ describe('AgentService', () => {
     expect(() => service.getActive(agent.id)).toThrow('请先恢复')
     expect(() => service.createVersion(agent.id)).toThrow('请先恢复')
     await expect(service.duplicate({ id: agent.id })).rejects.toThrow('请先恢复')
+    repository.close()
+  })
+
+  it('removes a newly-created workspace when repository creation fails', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-cleanup-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const workspaceRoot = path.join(directory, 'workspaces')
+    const service = new AgentService(repository, new WorkspaceService(workspaceRoot))
+    vi.spyOn(repository, 'create').mockImplementationOnce(() => {
+      throw new Error('simulated persistence failure')
+    })
+
+    await expect(
+      service.create({ name: 'Cleanup Agent', description: '', executionMode: 'agent-loop' }),
+    ).rejects.toThrow('simulated persistence failure')
+    expect(await readdir(workspaceRoot)).toEqual([])
+    repository.close()
+  })
+
+  it('preserves a legacy execution mode but only allows migration toward Native Harness', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-service-migration-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const service = new AgentService(
+      repository,
+      new WorkspaceService(path.join(directory, 'workspaces')),
+    )
+    const agent = await service.create({
+      name: 'Legacy Agent',
+      description: '',
+      executionMode: 'workflow',
+    })
+
+    expect(
+      (
+        await service.update({
+          ...agent,
+          description: '保留历史模式。',
+          executionMode: 'workflow',
+        })
+      ).agent.executionMode,
+    ).toBe('workflow')
+    expect(() => service.update({ ...agent, description: '', executionMode: 'hybrid' })).toThrow(
+      '不再接受新切换',
+    )
+    expect(
+      (await service.update({ ...agent, description: '', executionMode: 'external-harness' })).agent
+        .executionMode,
+    ).toBe('external-harness')
     repository.close()
   })
 })

@@ -25,6 +25,10 @@
     "name": { "type": "string", "minLength": 1, "maxLength": 100 },
     "description": { "type": "string", "maxLength": 500 },
     "revision": { "type": "integer", "minimum": 0 },
+    "profile": { "$ref": "#/$defs/agentProfile" },
+    "modelConfiguration": {
+      "oneOf": [{ "$ref": "#/$defs/modelConfiguration" }, { "type": "null" }]
+    },
     "components": {
       "type": "array",
       "items": { "$ref": "project-v1.schema.json#/$defs/component" }
@@ -36,6 +40,92 @@
     "updatedAt": { "type": "string", "format": "date-time" }
   },
   "$defs": {
+    "modelConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providerId", "modelId", "credentialRequirement"],
+      "properties": {
+        "providerId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$"
+        },
+        "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "credentialRequirement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "credentialKind"],
+          "properties": {
+            "method": { "enum": ["api-key", "official-login", "existing-login"] },
+            "credentialKind": { "enum": ["api-key", "harness-session"] }
+          }
+        }
+      }
+    },
+    "agentSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "markdown", "enabled"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "markdown": { "type": "string", "maxLength": 40000 },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "mcpServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "transport",
+        "command",
+        "args",
+        "url",
+        "secretReferences",
+        "enabled",
+        "approval"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "transport": { "enum": ["stdio", "http"] },
+        "command": { "type": ["string", "null"], "maxLength": 1000 },
+        "args": {
+          "type": "array",
+          "maxItems": 40,
+          "items": { "type": "string", "maxLength": 1000 }
+        },
+        "url": { "type": ["string", "null"], "format": "uri", "maxLength": 2000 },
+        "secretReferences": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,79}$" }
+        },
+        "enabled": { "type": "boolean" },
+        "approval": { "enum": ["review-required", "approved"] }
+      }
+    },
+    "agentProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instructions", "memoryMarkdown", "skills", "mcpServers", "toolPolicy"],
+      "properties": {
+        "instructions": { "type": "string", "maxLength": 40000 },
+        "memoryMarkdown": { "type": "string", "maxLength": 120000 },
+        "skills": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/agentSkill" }
+        },
+        "mcpServers": {
+          "type": "array",
+          "maxItems": 30,
+          "items": { "$ref": "#/$defs/mcpServer" }
+        },
+        "toolPolicy": { "enum": ["read-only", "workspace"] }
+      }
+    },
     "workflowNode": {
       "oneOf": [
         {
@@ -167,6 +257,8 @@
                 "name": { "type": "string", "minLength": 1, "maxLength": 100 }
               }
             },
+            "profile": { "$ref": "#/$defs/agentProfile" },
+            "modelConfiguration": { "$ref": "#/$defs/modelConfiguration" },
             "stack": { "$ref": "project-v1.schema.json#/$defs/stack" },
             "components": {
               "type": "array",

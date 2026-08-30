@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -38,6 +38,20 @@ describe('scanProject', () => {
         expect.objectContaining({ detail: '声明了 @langchain/langgraph 依赖' }),
         expect.objectContaining({ path: 'AGENTS.md' }),
       ]),
+    )
+  })
+
+  it('rejects a symbolic-link root instead of following it into another directory', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-import-link-'))
+    temporaryDirectories.push(directory)
+    const target = path.join(directory, 'target')
+    const link = path.join(directory, 'source-link')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(target)
+    await symlink(target, link)
+
+    await expect(scanProject(link, '4d3f3df6-4895-4d8e-8435-772764990db7')).rejects.toThrow(
+      '非符号链接',
     )
   })
 })

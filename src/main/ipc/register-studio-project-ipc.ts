@@ -4,7 +4,12 @@ import { ipcChannels } from '../../shared/ipc'
 import {
   emptyProjectInputSchema,
   projectComponentInputSchema,
+  projectComponentValidationInputSchema,
+  projectComponentCancelInputSchema,
+  projectComponentCancelResultSchema,
   projectDescriptorInputSchema,
+  projectProfileInputSchema,
+  projectHarnessInputSchema,
   projectMutationInputSchema,
   projectOwnerInputSchema,
   projectWorkflowCreateInputSchema,
@@ -96,11 +101,55 @@ export function registerStudioProjectIpc(options: {
         ),
     }),
   )
+  ipcMain.handle(
+    ipcChannels.studioProjectProfileUpdate,
+    createValidatedHandler({
+      input: projectProfileInputSchema,
+      output: studioProjectStateSchema,
+      handle: ({ profile, expectedRevision }) =>
+        options.projects.updateProfile(profile, expectedRevision),
+    }),
+  )
+  ipcMain.handle(
+    ipcChannels.studioProjectHarnessSelect,
+    createValidatedHandler({
+      input: projectHarnessInputSchema,
+      output: studioProjectStateSchema,
+      handle: ({ harnessId, expectedRevision }) =>
+        options.projects.selectHarness(harnessId, expectedRevision),
+    }),
+  )
+  ipcMain.handle(
+    ipcChannels.studioProjectComponentRecheck,
+    createValidatedHandler({
+      input: projectComponentInputSchema,
+      output: studioProjectStateSchema,
+      handle: async (input) => {
+        let sourcePath = await options.projects.componentSourcePath(input.componentId)
+        if (!sourcePath) {
+          const selection = await showDirectory('重新关联组件来源并执行静态检查', '关联并检查')
+          sourcePath = selection.filePaths[0]
+          if (selection.canceled || !sourcePath) return options.projects.current()
+        }
+        return options.projects.recheck(input.componentId, input.expectedRevision, sourcePath)
+      },
+    }),
+  )
   for (const [channel, handle] of [
     [
       ipcChannels.studioProjectComponentArchive,
       (input: typeof projectComponentInputSchema._output) =>
         options.projects.archive(input.componentId, input.expectedRevision),
+    ],
+    [
+      ipcChannels.studioProjectComponentRestore,
+      (input: typeof projectComponentInputSchema._output) =>
+        options.projects.restore(input.componentId, input.expectedRevision),
+    ],
+    [
+      ipcChannels.studioProjectComponentContractTest,
+      (input: typeof projectComponentInputSchema._output) =>
+        options.projects.contractTest(input.componentId, input.expectedRevision),
     ],
     [
       ipcChannels.studioProjectComponentDelete,
@@ -127,6 +176,25 @@ export function registerStudioProjectIpc(options: {
       }),
     )
   }
+  ipcMain.handle(
+    ipcChannels.studioProjectComponentRuntimeValidate,
+    createValidatedHandler({
+      input: projectComponentValidationInputSchema,
+      output: studioProjectStateSchema,
+      handle: ({ componentId, expectedRevision, timeoutMs }) =>
+        options.projects.runtimeValidate(componentId, expectedRevision, timeoutMs),
+    }),
+  )
+  ipcMain.handle(
+    ipcChannels.studioProjectComponentRuntimeCancel,
+    createValidatedHandler({
+      input: projectComponentCancelInputSchema,
+      output: projectComponentCancelResultSchema,
+      handle: ({ componentId }) => ({
+        cancelled: options.projects.cancelRuntimeValidation(componentId),
+      }),
+    }),
+  )
   ipcMain.handle(
     ipcChannels.studioProjectOwnerSet,
     createValidatedHandler({
@@ -251,7 +319,14 @@ export function registerStudioProjectIpc(options: {
     ipcChannels.studioProjectInit,
     ipcChannels.studioProjectImport,
     ipcChannels.studioProjectDescriptorUpdate,
+    ipcChannels.studioProjectProfileUpdate,
+    ipcChannels.studioProjectHarnessSelect,
     ipcChannels.studioProjectComponentArchive,
+    ipcChannels.studioProjectComponentRestore,
+    ipcChannels.studioProjectComponentRecheck,
+    ipcChannels.studioProjectComponentContractTest,
+    ipcChannels.studioProjectComponentRuntimeValidate,
+    ipcChannels.studioProjectComponentRuntimeCancel,
     ipcChannels.studioProjectComponentDelete,
     ipcChannels.studioProjectStackAdd,
     ipcChannels.studioProjectStackRemove,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CreateAgentInput } from '../../shared/agent'
 import type { AgentStatusProjection } from '../../shared/agent-status'
 import { ipcChannels } from '../../shared/ipc'
 import type { AgentService } from '../agents/agent-service'
@@ -25,9 +26,12 @@ vi.mock('electron', () => ({
 
 import { registerAgentIpc } from './register-agent-ipc'
 
+const trustedFrame = {
+  url: 'file:///Applications/Agent%20Stack%20Studio.app/Contents/Resources/app.asar/dist/renderer/index.html',
+}
 const trustedEvent = {
-  senderFrame: { url: 'file:///Applications/Agent%20Stack%20Studio.app/renderer/index.html' },
-  sender: { getURL: () => '' },
+  senderFrame: trustedFrame,
+  sender: { mainFrame: trustedFrame, getURL: () => trustedFrame.url },
 }
 
 const projection: AgentStatusProjection = {
@@ -104,5 +108,39 @@ describe('agent status IPC', () => {
     ).rejects.toThrow('提交的 Agent 数据无效')
     expect(list).not.toHaveBeenCalled()
     expect(get).not.toHaveBeenCalled()
+  })
+
+  it('allows ordinary GUI creation only for Native Harness Agents', async () => {
+    const create = vi.fn((input: CreateAgentInput) =>
+      Promise.resolve({
+        ...projection.agent,
+        name: input.name,
+        description: input.description,
+        executionMode: input.executionMode,
+      }),
+    )
+    registerAgentIpc({
+      agents: { create } as unknown as AgentService,
+      agentStatus: {} as AgentStatusService,
+      imports: {} as ImportService,
+      getWindow: () => undefined,
+    })
+    const handler = electron.handlers.get(ipcChannels.agentsCreate)
+
+    await expect(
+      handler?.(trustedEvent, {
+        name: 'Native Agent',
+        description: '',
+        executionMode: 'external-harness',
+      }),
+    ).resolves.toMatchObject({ name: 'Native Agent', executionMode: 'external-harness' })
+    await expect(
+      handler?.(trustedEvent, {
+        name: 'Old Agent',
+        description: '',
+        executionMode: 'agent-loop',
+      }),
+    ).rejects.toThrow('提交的 Agent 数据无效')
+    expect(create).toHaveBeenCalledTimes(1)
   })
 })

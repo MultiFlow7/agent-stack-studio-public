@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AgentRepository } from './agent-repository'
 import { ComponentRepository } from './component-repository'
 import { builtInComponents } from '../components/built-in-components'
+import { isProjectAgentVersionReference } from '../../shared/agent-detail'
+import { StudioCore } from '../../core/studio-core'
 
 const temporaryDirectories: string[] = []
 
@@ -108,7 +110,29 @@ describe('AgentRepository', () => {
     expect(detail.draft.revision).toBe(2)
     expect(detail.agent.name).toBe('Changed Agent')
     expect(detail.versions[0]).toEqual(version)
-    expect(detail.versions[0]?.snapshot.agent.name).toBe('Baseline Agent')
+    const snapshot = detail.versions[0]?.snapshot
+    expect(snapshot && !isProjectAgentVersionReference(snapshot) ? snapshot.agent.name : null).toBe(
+      'Baseline Agent',
+    )
+    repository.close()
+  })
+
+  it('treats a duplicate settings request as a no-op without bumping revision', async () => {
+    const repository = await createRepository()
+    const agent = repository.create({
+      name: 'Idempotent Agent',
+      description: 'Same values',
+      executionMode: 'agent-loop',
+    })
+
+    const unchanged = repository.update({
+      id: agent.id,
+      name: agent.name,
+      description: agent.description,
+      executionMode: agent.executionMode,
+    })
+
+    expect(unchanged.draft.revision).toBe(1)
     repository.close()
   })
 
@@ -132,6 +156,119 @@ describe('AgentRepository', () => {
     expect(repository.getSecretReference(reference.id)).toEqual(reference)
     repository.deleteSecretReference(reference.id)
     expect(repository.listSecretReferences(agent.id)).toEqual([])
+    repository.close()
+  })
+
+  it('persists project-scoped Provider bindings and only matching-hash verification metadata', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-stack-provider-binding-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const projectRoot = path.join(directory, 'project')
+    const initialized = await new StudioCore().initProject(projectRoot, { name: 'Bound Agent' })
+    const link = repository.ensureProjectAgent(
+      initialized.project,
+      path.join(projectRoot, '.agent-stack'),
+    )
+    const reference = repository.saveSecretReference({
+      agentId: link.agentId,
+      label: 'OpenAI API',
+      keychainService: 'studio.agentstack.desktop',
+      keychainAccount: `${initialized.project.id}:pi:openai`,
+    })
+
+    const binding = repository.saveProviderCredentialBinding({
+      agentId: link.agentId,
+      projectId: initialized.project.id,
+      harnessId: 'pi',
+      providerId: 'openai',
+      authMethod: 'api-key',
+      secretReferenceId: reference.id,
+    })
+    const configurationHash = 'a'.repeat(64)
+    const verification = repository.saveModelVerification({
+      bindingId: binding.id,
+      configurationHash,
+      status: 'minimal-call-succeeded',
+      checkedAt: '2026-08-26T08:00:00.000Z',
+    })
+
+    expect(repository.listProviderCredentialBindings(initialized.project.id)).toEqual([binding])
+    expect(
+      repository.findProviderCredentialBinding(initialized.project.id, 'pi', 'openai'),
+    ).toEqual(binding)
+    expect(repository.getModelVerification(binding.id, configurationHash)).toEqual(verification)
+    expect(repository.getModelVerification(binding.id, 'b'.repeat(64))).toBeNull()
+    expect(JSON.stringify({ binding, verification })).not.toContain('private-provider-value')
+    expect(() => repository.deleteSecretReference(reference.id)).toThrow()
+
+    const changed = repository.saveProviderCredentialBinding({
+      agentId: link.agentId,
+      projectId: initialized.project.id,
+      harnessId: 'pi',
+      providerId: 'openai',
+      authMethod: 'existing-login',
+      secretReferenceId: null,
+    })
+    expect(changed.id).toBe(binding.id)
+    expect(repository.getModelVerification(binding.id, configurationHash)).toBeNull()
+    repository.deleteSecretReference(reference.id)
+    repository.close()
+  })
+
+  it('rejects unlinked, cross-Agent, and structurally invalid Provider bindings', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'agent-stack-provider-isolation-'))
+    temporaryDirectories.push(directory)
+    const repository = new AgentRepository(path.join(directory, 'studio.sqlite3'))
+    const core = new StudioCore()
+    const firstRoot = path.join(directory, 'first')
+    const secondRoot = path.join(directory, 'second')
+    const firstProject = await core.initProject(firstRoot, { name: 'First Agent' })
+    const secondProject = await core.initProject(secondRoot, { name: 'Second Agent' })
+    const first = repository.ensureProjectAgent(
+      firstProject.project,
+      path.join(firstRoot, '.agent-stack'),
+    )
+    const second = repository.ensureProjectAgent(
+      secondProject.project,
+      path.join(secondRoot, '.agent-stack'),
+    )
+    const secondReference = repository.saveSecretReference({
+      agentId: second.agentId,
+      label: 'Second API',
+      keychainService: 'studio.agentstack.desktop',
+      keychainAccount: `${second.projectId}:pi:openai`,
+    })
+
+    expect(() =>
+      repository.saveProviderCredentialBinding({
+        agentId: first.agentId,
+        projectId: first.projectId,
+        harnessId: 'pi',
+        providerId: 'openai',
+        authMethod: 'api-key',
+        secretReferenceId: secondReference.id,
+      }),
+    ).toThrow('其他 Agent')
+    expect(() =>
+      repository.saveProviderCredentialBinding({
+        agentId: first.agentId,
+        projectId: first.projectId,
+        harnessId: 'pi',
+        providerId: 'openai',
+        authMethod: 'api-key',
+        secretReferenceId: null,
+      }),
+    ).toThrow()
+    expect(() =>
+      repository.saveProviderCredentialBinding({
+        agentId: first.agentId,
+        projectId: second.projectId,
+        harnessId: 'pi',
+        providerId: 'openai',
+        authMethod: 'existing-login',
+        secretReferenceId: null,
+      }),
+    ).toThrow('当前 Agent')
     repository.close()
   })
 

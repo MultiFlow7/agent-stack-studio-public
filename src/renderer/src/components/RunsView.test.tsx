@@ -5,6 +5,7 @@ import type { Agent } from '../../../shared/agent'
 import type { ExecutionMode } from '../../../shared/agent'
 import type { StudioApi } from '../../../shared/ipc'
 import type { RunHistory, RunHistoryDetail, RunRecord } from '../../../shared/run'
+import type { RunExecutionRoute } from '../../../shared/run'
 import { createRunFixture, fixtureAgentId } from '../../../test/run-fixture'
 import { RunsView } from './RunsView'
 
@@ -23,6 +24,7 @@ function installApi(
   initialRuns: RunRecord[] = [],
   executionMode: ExecutionMode = 'agent-loop',
   experimentHistory: RunHistory['experiment'] = null,
+  executionRoute: RunExecutionRoute = { kind: 'legacy' },
 ) {
   let runs = initialRuns
   const currentAgent = { ...agent, executionMode }
@@ -90,6 +92,7 @@ function installApi(
     return get(runId)
   })
   const runsApi: StudioApi['runs'] = {
+    route: vi.fn(() => Promise.resolve(executionRoute)),
     start,
     list: vi.fn(() => Promise.resolve(runs)),
     get,
@@ -134,23 +137,47 @@ function installApi(
       export: vi.fn(() => Promise.resolve({ status: 'cancelled' as const })),
     },
     publishing: {
+      runtimes: vi.fn(() => Promise.resolve([])),
       targets: vi.fn(() => Promise.resolve([])),
       preview: vi.fn(() => Promise.reject(new Error('unused'))),
       publish: vi.fn(() => Promise.reject(new Error('unused'))),
       history: vi.fn(() => Promise.resolve({ mapping: null, receipts: [] })),
+      status: vi.fn(() => Promise.reject(new Error('unused'))),
     },
     maintenance: {} as StudioApi['maintenance'],
     preferences: {} as StudioApi['preferences'],
+    commandCenter: {} as StudioApi['commandCenter'],
     discovery: {} as StudioApi['discovery'],
     menu: {
       onCreateAgent: vi.fn(() => () => undefined),
       onOpenSettings: vi.fn(() => () => undefined),
     },
   }
-  return { start, cancel }
+  return { start, get, cancel }
 }
 
 describe('RunsView', () => {
+  it('opens a command-center Run destination directly', async () => {
+    const { manifest } = createRunFixture()
+    const succeeded: RunRecord = {
+      id: manifest.runId,
+      agentId: manifest.agentId,
+      agentVersionId: manifest.agentVersionId,
+      status: 'succeeded',
+      manifest,
+      startedAt: timestamp,
+      finishedAt: timestamp,
+      failure: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    const { get } = installApi([succeeded])
+    render(<RunsView runId={succeeded.id} />)
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith(succeeded.id))
+    expect(await screen.findByRole('heading', { name: '已完成' })).toBeVisible()
+  })
+
   it('shows a useful empty state for a local Agent', async () => {
     installApi()
     render(<RunsView agentId={fixtureAgentId} />)
@@ -175,6 +202,21 @@ describe('RunsView', () => {
     await user.click(screen.getByRole('button', { name: '取消' }))
     await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
     expect(await screen.findByRole('heading', { name: '已取消' })).toBeVisible()
+  })
+
+  it('routes a Native external-harness Agent away from legacy runs:start', async () => {
+    const { start } = installApi([], 'external-harness', null, {
+      kind: 'native',
+      harnessId: 'pi',
+    })
+    render(<RunsView agentId={fixtureAgentId} />)
+
+    expect(
+      await screen.findByRole('heading', { name: '此 Agent 不使用旧版本地 Run' }),
+    ).toBeVisible()
+    expect(screen.getByText(/Pi 通过上方 Native Harness 入口/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: '启动本地 Run' })).not.toBeInTheDocument()
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('keeps a failed historical Run read-only with duration, variables, and Experiment Drift', async () => {

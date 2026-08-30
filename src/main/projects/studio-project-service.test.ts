@@ -7,7 +7,10 @@ import type { StudioProject } from '../../core/project-model'
 import { ComponentService } from '../components/component-service'
 import { ComponentRepository } from '../persistence/component-repository'
 import { ProjectIndexRepository } from '../persistence/project-index-repository'
+import { AgentRepository } from '../persistence/agent-repository'
 import { StudioProjectService } from './studio-project-service'
+import { buildAgentModelReadiness, harnessModelCapability } from '../../shared/model-auth'
+import type { ModelAuthView } from '../../shared/model-auth-ipc'
 
 const directories: string[] = []
 
@@ -29,6 +32,135 @@ afterEach(async () => {
 })
 
 describe('StudioProjectService GUI/CLI consistency', () => {
+  it('blocks freeze with a concrete recovery until the exact model configuration is verified', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-model-ready-'))
+    directories.push(directory)
+    const databasePath = path.join(directory, 'studio.sqlite3')
+    const componentRepository = new ComponentRepository(databasePath)
+    const index = new ProjectIndexRepository(databasePath)
+    const service = new StudioProjectService({
+      index,
+      components: new ComponentService(componentRepository),
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    let state = await service.init(path.join(directory, 'project'))
+    state = await service.selectHarness('pi', state.project!.revision)
+    const selection = {
+      providerId: 'openai',
+      modelId: 'gpt-5.1',
+      credentialRequirement: { method: 'api-key' as const, credentialKind: 'api-key' as const },
+    }
+    state = await service.updateModelConfiguration(selection, state.project!.revision)
+    const capability = harnessModelCapability('pi')
+    const base = {
+      harness: { id: 'pi' as const, label: 'Pi' },
+      capability,
+      probe: {
+        id: 'pi' as const,
+        label: 'Pi',
+        executable: '/trusted/pi',
+        status: 'ready' as const,
+        version: '0.84.2',
+        requiredVersion: '0.84.2',
+        capabilities: {
+          prompt: 'native' as const,
+          skills: 'native' as const,
+          memory: 'adapted' as const,
+          mcp: 'unavailable' as const,
+          sessions: 'native' as const,
+        },
+        detail: '受控 Pi 测试。',
+      },
+      selection,
+    }
+    let currentView: ModelAuthView = {
+      ...base,
+      readiness: buildAgentModelReadiness({
+        stackCompatible: true,
+        harnessStatus: 'ready',
+        configurationState: 'configured',
+        configuration: selection,
+        authentication: null,
+        verification: {
+          state: 'not-run',
+          configurationHash: null,
+          checkedAt: null,
+          failure: null,
+        },
+      }),
+    }
+    service.connectModelAuth({ view: () => Promise.resolve(currentView) })
+
+    await expect(service.freeze(state.project!.revision)).rejects.toMatchObject({
+      code: 'HARNESS_AUTHENTICATION_REQUIRED',
+      message: '当前 Provider 尚未认证。',
+    })
+
+    const checkedAt = new Date().toISOString()
+    currentView = {
+      ...base,
+      readiness: buildAgentModelReadiness({
+        stackCompatible: true,
+        harnessStatus: 'ready',
+        configurationState: 'configured',
+        configuration: selection,
+        authentication: {
+          harnessId: 'pi',
+          providerId: 'openai',
+          authMethod: 'api-key',
+          state: 'credential-valid',
+          detail: '凭证有效。',
+          checkedAt,
+          failure: null,
+        },
+        verification: {
+          state: 'minimal-call-succeeded',
+          configurationHash: 'a'.repeat(64),
+          checkedAt,
+          failure: null,
+        },
+      }),
+    }
+    const frozen = await service.freeze(state.project!.revision)
+    expect(frozen.project!.versions).toHaveLength(1)
+
+    service.close()
+    index.close()
+    componentRepository.close()
+  })
+
+  it('makes a library import immediately selectable by the project Agent without SQLite duplication', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-library-'))
+    directories.push(directory)
+    const databasePath = path.join(directory, 'studio.sqlite3')
+    const componentRepository = new ComponentRepository(databasePath)
+    const agentRepository = new AgentRepository(databasePath)
+    const index = new ProjectIndexRepository(databasePath)
+    const components = new ComponentService(componentRepository)
+    const service = new StudioProjectService({
+      index,
+      components,
+      agents: agentRepository,
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    components.connectProject(service)
+    let state = await service.init(path.join(directory, 'project'))
+    state = await service.importComponent(
+      path.resolve('src/test/fixtures/m7/harness-x'),
+      state.project!.revision,
+    )
+
+    expect(components.list().map(({ id }) => id)).toEqual([state.project!.components[0].id])
+    expect(componentRepository.list()).toEqual([])
+    state = await service.stackAdd(state.project!.components[0].id, state.project!.revision)
+    expect(components.getStack(state.localAgentId!).components).toHaveLength(1)
+
+    service.close()
+    index.close()
+    agentRepository.close()
+    componentRepository.close()
+  })
+
   it('writes through Studio Core, lets CLI read the same state, and reports later CLI changes', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-service-'))
     directories.push(directory)
@@ -61,6 +193,7 @@ describe('StudioProjectService GUI/CLI consistency', () => {
     await executeCliCommand(
       parseArguments(['stack', 'remove', component.id, '--project', projectRoot, '--json']),
     )
+    expect((await service.summary()).project!.stack.componentIds).toEqual([])
     await changed
     expect((await service.current(true)).project!.stack.componentIds).toEqual([])
 
@@ -127,5 +260,54 @@ describe('StudioProjectService GUI/CLI consistency', () => {
     service.close()
     index.close()
     componentRepository.close()
+  })
+
+  it('relinks a missing local source without changing component identity', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'studio-project-relink-'))
+    directories.push(directory)
+    const projectRoot = path.join(directory, 'project')
+    const firstDatabase = path.join(directory, 'first.sqlite3')
+    const firstRepository = new ComponentRepository(firstDatabase)
+    const firstIndex = new ProjectIndexRepository(firstDatabase)
+    const first = new StudioProjectService({
+      index: firstIndex,
+      components: new ComponentService(firstRepository),
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    let state = await first.init(projectRoot)
+    const harnessSource = path.resolve('src/test/fixtures/m7/harness-x')
+    state = await first.importComponent(harnessSource, state.project!.revision)
+    const component = state.project!.components[0]
+    first.close()
+    firstIndex.close()
+    firstRepository.close()
+
+    const reopenedDatabase = path.join(directory, 'reopened.sqlite3')
+    const reopenedRepository = new ComponentRepository(reopenedDatabase)
+    const reopenedIndex = new ProjectIndexRepository(reopenedDatabase)
+    const reopened = new StudioProjectService({
+      index: reopenedIndex,
+      components: new ComponentService(reopenedRepository),
+      cliPath: '/Applications/Agent Stack Studio.app/Contents/Resources/studio.mjs',
+    })
+    state = await reopened.open(projectRoot)
+    expect(await reopened.componentSourcePath(component.id)).toBeNull()
+
+    const relinked = await reopened.recheck(component.id, state.project!.revision, harnessSource)
+    expect(relinked.project!.components[0].id).toBe(component.id)
+    expect(await reopened.componentSourcePath(component.id)).toBe(harnessSource)
+
+    await expect(
+      reopened.recheck(
+        component.id,
+        relinked.project!.revision,
+        path.resolve('src/test/fixtures/m7/research-y'),
+      ),
+    ).rejects.toMatchObject({ code: 'COMPONENT_INVALID' })
+    expect((await reopened.current()).project!.revision).toBe(relinked.project!.revision)
+
+    reopened.close()
+    reopenedIndex.close()
+    reopenedRepository.close()
   })
 })

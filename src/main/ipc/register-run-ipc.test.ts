@@ -24,9 +24,12 @@ vi.mock('electron', () => ({
 
 import { registerRunIpc } from './register-run-ipc'
 
+const trustedFrame = {
+  url: 'file:///Applications/Agent%20Stack%20Studio.app/Contents/Resources/app.asar/dist/renderer/index.html',
+}
 const trustedEvent = {
-  senderFrame: { url: 'file:///Applications/Agent%20Stack%20Studio.app/renderer/index.html' },
-  sender: { getURL: () => '' },
+  senderFrame: trustedFrame,
+  sender: { mainFrame: trustedFrame, getURL: () => trustedFrame.url },
 }
 
 function historyDetail(): RunHistoryDetail {
@@ -72,6 +75,7 @@ describe('Run history IPC', () => {
     const cancel = vi.fn(() => detail)
     const unregister = registerRunIpc({
       runs: {
+        route: vi.fn(() => ({ kind: 'legacy' })),
         start: vi.fn(),
         list: vi.fn(() => []),
       } as unknown as RunService,
@@ -96,7 +100,7 @@ describe('Run history IPC', () => {
     const get = vi.fn()
     const cancel = vi.fn()
     registerRunIpc({
-      runs: { start: vi.fn(), list: vi.fn(() => []) } as unknown as RunService,
+      runs: { route: vi.fn(), start: vi.fn(), list: vi.fn(() => []) } as unknown as RunService,
       history: { get, cancel } as unknown as RunHistoryService,
     })
 
@@ -114,5 +118,24 @@ describe('Run history IPC', () => {
     ).rejects.toThrow('提交的 Agent 数据无效')
     expect(get).not.toHaveBeenCalled()
     expect(cancel).not.toHaveBeenCalled()
+  })
+
+  it('validates the Native-first route input and output in Main', async () => {
+    const route = vi.fn(() => ({ kind: 'native' as const, harnessId: 'pi' as const }))
+    registerRunIpc({
+      runs: { route, start: vi.fn(), list: vi.fn(() => []) } as unknown as RunService,
+      history: { get: vi.fn(), cancel: vi.fn() } as unknown as RunHistoryService,
+    })
+
+    await expect(
+      electron.handlers.get(ipcChannels.runsRoute)?.(trustedEvent, { agentId: fixtureRunId }),
+    ).resolves.toEqual({ kind: 'native', harnessId: 'pi' })
+    await expect(
+      electron.handlers.get(ipcChannels.runsRoute)?.(trustedEvent, {
+        agentId: fixtureRunId,
+        executable: '/bin/sh',
+      }),
+    ).rejects.toThrow('提交的 Agent 数据无效')
+    expect(route).toHaveBeenCalledTimes(1)
   })
 })

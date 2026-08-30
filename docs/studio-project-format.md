@@ -4,9 +4,9 @@
 
 ## 事实来源
 
-- 可移植且需要版本控制的定义只写入 `.agent-stack`。
+- 可移植且需要版本控制的定义只写入 `.agent-stack`。`modelConfiguration` 只记录 Provider、模型和凭证需求类型。
 - SQLite 的 `studio_projects` 只索引本机绝对路径、最近 revision/hash 和打开时间。
-- Run、Experiment、Receipt、Artifact、Multica 映射、Keychain 引用与维护记录继续由 SQLite 管理。
+- Run、Experiment、Receipt、Artifact、Multica 映射、Provider 本机 binding、验证状态、Keychain 引用与维护记录继续由 SQLite 管理。Keychain locator 和凭证原文不进入项目、Version 或导出包。
 - 来源绝对路径和 Git 工作树状态属于本机证据；冻结版本会保留证据快照，但不把路径当作跨机器组件身份。
 
 ## 写入协议
@@ -42,3 +42,23 @@
 - `studio project audit --json` 使用只读且不自动恢复的路径；失败返回 `PROJECT_INTEGRITY_FAILED`。
 - 普通 inspect 和 GUI 可以恢复已通过同一审计的 `.agent-stack.backup`。恢复前保留 `.agent-stack.invalid-*`，GUI 必须提示人工比较。
 - 本地 SHA-256 证明快照与已记录哈希一致，但不证明作者身份。能够同时改写快照与哈希的攻击者不在该机制的保证范围内。
+
+## Agent-first 引用边界
+
+一个打开的 `.agent-stack` 项目解释为一个可携 Agent Stack。Component Descriptor、Stack 顺序、Owner 决策、Workflow 和不可变 Version 都由该文件唯一承载；SQLite 只以稳定 Agent ID 引用项目 ID、路径、revision 和不可变 Version ID，不复制项目内容。
+
+`project validate`、`stack validate` 和 Agent 组装器都从同一 Core 计算兼容性评估。评估是可重建的验证结果，不要求用户手工编辑 JSON；外部文件的 revision 与完整性仍在每次写入前复核。
+
+## M31 兼容与生命周期字段
+
+M31 在 v2 内增加 Descriptor `permissions`、`secretReferences`、策略理由/时间，以及 evidence 的 status/method/recordedAt/supersededAt/Artifact/Receipt。Project Component 可选 `auditTrail` 记录导入、静态检查、结构更新、策略、契约测试、运行验证、归档和恢复。这些仍只位于 `.agent-stack`；SQLite 不增加同步副本，Keychain 原文不进入文件。
+
+加法字段都有 schema 上限和严格对象校验。旧 v0/v1/v2 `unknown` 和 `user-confirmed` 记录保持原样；读取投影将其明确映射为“机器证据不足”或“人工决策记录”，绝不升级为契约/运行通过。需要格式迁移时仍保留 `.agent-stack.backup`；高于 v2 的格式继续拒绝读取改写。
+
+Component 归档仅写 `archivedAt` 和审计记录，恢复将其清空。归档 Component 仍保留在历史 Version/Workflow 中；永久删除只能在已归档且无任何当前或不可变引用时发生。
+
+## 模型与认证边界
+
+- Harness、Provider、模型或认证方式变更时，本机最小模型验证立即过期；历史记录可审计，但不能继续满足就绪。
+- 冻结的 Version 保留 `modelConfiguration` 的便携要求，不保留 binding ID、Keychain service/account、本机登录态、检查时间或验证结果。
+- 导入到另一台 Mac 后，Studio 会依据便携要求重建本机 binding，不会猜测迁移旧的通用密钥引用。

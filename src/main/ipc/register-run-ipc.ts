@@ -2,10 +2,12 @@ import { ipcMain } from 'electron'
 import { ipcChannels } from '../../shared/ipc'
 import {
   runHistoryDetailSchema,
+  runExecutionRouteSchema,
   runIdInputSchema,
   runListInputSchema,
   runListSchema,
   runRecordSchema,
+  runRouteInputSchema,
   startRunInputSchema,
 } from '../../shared/run'
 import type { RunService } from '../runs/run-service'
@@ -17,6 +19,14 @@ export function registerRunIpc(options: {
   history: RunHistoryService
 }): () => void {
   const { runs, history } = options
+  ipcMain.handle(
+    ipcChannels.runsRoute,
+    createValidatedHandler({
+      input: runRouteInputSchema,
+      output: runExecutionRouteSchema,
+      handle: ({ agentId }) => runs.route(agentId),
+    }),
+  )
   ipcMain.handle(
     ipcChannels.runsStart,
     createValidatedHandler({
@@ -52,6 +62,7 @@ export function registerRunIpc(options: {
 
   return () => {
     for (const channel of [
+      ipcChannels.runsRoute,
       ipcChannels.runsStart,
       ipcChannels.runsList,
       ipcChannels.runsGet,

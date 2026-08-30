@@ -174,4 +174,136 @@ describe('database migrations', () => {
     })
     database.close()
   })
+
+  it('upgrades v9 with empty Provider bindings while preserving legacy secret references', async () => {
+    const filePath = await databasePath()
+    const database = new Database(filePath)
+    migrate(database)
+    database.exec(`
+      DROP TABLE model_verifications;
+      DROP TABLE provider_credential_bindings;
+      DROP TABLE agent_setup_sessions;
+      DELETE FROM schema_migrations WHERE version >= 10;
+      INSERT INTO agents
+        (id, name, description, execution_mode, archived_at, created_at, updated_at)
+      VALUES
+        ('4061fbad-2152-47bc-9db3-bd70d133f2be', '历史 Agent', '', 'external-harness', NULL,
+         '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z');
+      INSERT INTO agent_stack_drafts (agent_id, execution_mode, revision, updated_at)
+      VALUES
+        ('4061fbad-2152-47bc-9db3-bd70d133f2be', 'external-harness', 1,
+         '2026-08-19T00:00:00.000Z');
+      INSERT INTO agent_project_links (agent_id, project_id, project_path, linked_at, updated_at)
+      VALUES
+        ('4061fbad-2152-47bc-9db3-bd70d133f2be',
+         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '/tmp/legacy/.agent-stack',
+         '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z');
+      INSERT INTO secret_references
+        (id, agent_id, label, keychain_service, keychain_account, created_at)
+      VALUES
+        ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+         '4061fbad-2152-47bc-9db3-bd70d133f2be', 'OpenAI API',
+         'studio.agentstack.desktop', 'legacy-openai', '2026-08-19T00:00:00.000Z');
+    `)
+
+    migrate(database)
+
+    expect(database.prepare('SELECT COUNT(*) FROM secret_references').pluck().get()).toBe(1)
+    expect(
+      database.prepare('SELECT COUNT(*) FROM provider_credential_bindings').pluck().get(),
+    ).toBe(0)
+    expect(database.prepare('SELECT COUNT(*) FROM model_verifications').pluck().get()).toBe(0)
+    expect(database.prepare('SELECT MAX(version) FROM schema_migrations').pluck().get()).toBe(
+      CURRENT_SCHEMA_VERSION,
+    )
+    expect(database.pragma('integrity_check', { simple: true })).toBe('ok')
+    database.close()
+  })
+
+  it('enforces Provider binding secret semantics and rolls back a conflicting v10 upgrade', async () => {
+    const filePath = await databasePath()
+    const database = new Database(filePath)
+    migrate(database)
+    database.exec(`
+      DROP TABLE model_verifications;
+      DROP TABLE provider_credential_bindings;
+      DROP TABLE agent_setup_sessions;
+      DELETE FROM schema_migrations WHERE version >= 10;
+      CREATE TABLE provider_credential_bindings (conflict TEXT);
+    `)
+
+    expect(() => migrate(database)).toThrow()
+    expect(database.prepare('SELECT MAX(version) FROM schema_migrations').pluck().get()).toBe(9)
+    expect(
+      database
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'model_verifications'",
+        )
+        .get(),
+    ).toBeUndefined()
+
+    database.exec('DROP TABLE provider_credential_bindings')
+    migrate(database)
+    expect(database.prepare('SELECT MAX(version) FROM schema_migrations').pluck().get()).toBe(
+      CURRENT_SCHEMA_VERSION,
+    )
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO provider_credential_bindings
+           (id, agent_id, project_id, harness_id, provider_id, auth_method,
+            secret_reference_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          'missing-agent',
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          'pi',
+          'openai',
+          'api-key',
+          null,
+          '2026-08-19T00:00:00.000Z',
+          '2026-08-19T00:00:00.000Z',
+        ),
+    ).toThrow()
+    database.close()
+  })
+
+  it('rolls back a conflicting setup-session migration and can retry through v12 cleanly', async () => {
+    const filePath = await databasePath()
+    const database = new Database(filePath)
+    migrate(database)
+    database.exec(`
+      DROP TABLE agent_setup_sessions;
+      DELETE FROM schema_migrations WHERE version >= 11;
+      CREATE TABLE agent_setup_sessions (conflict TEXT);
+    `)
+
+    expect(() => migrate(database)).toThrow()
+    expect(database.prepare('SELECT MAX(version) FROM schema_migrations').pluck().get()).toBe(10)
+    expect(
+      database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('agent_setup_sessions_status_updated_idx'),
+    ).toBeUndefined()
+
+    database.exec('DROP TABLE agent_setup_sessions')
+    migrate(database)
+    expect(database.prepare('SELECT MAX(version) FROM schema_migrations').pluck().get()).toBe(
+      CURRENT_SCHEMA_VERSION,
+    )
+    expect(database.prepare('SELECT COUNT(*) FROM agent_setup_sessions').pluck().get()).toBe(0)
+    expect(
+      database
+        .prepare('SELECT name FROM pragma_table_info(?) WHERE name = ?')
+        .get('agent_setup_sessions', 'capability_selections_json'),
+    ).toEqual({ name: 'capability_selections_json' })
+    expect(
+      database
+        .prepare('SELECT name FROM pragma_table_info(?) WHERE name = ?')
+        .get('agent_setup_sessions', 'mcp_validations_json'),
+    ).toEqual({ name: 'mcp_validations_json' })
+    database.close()
+  })
 })

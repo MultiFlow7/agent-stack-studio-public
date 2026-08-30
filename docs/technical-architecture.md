@@ -13,10 +13,10 @@ flowchart LR
     CORE --> PROJECT["Project .agent-stack\nPortable Definitions"]
     MAIN --> DB["Local SQLite\nLocal Index and Records"]
     MAIN --> FS["Workspace and Artifacts"]
-    MAIN --> RUNNER["Isolated Runtime Process"]
-    RUNNER --> CORDIS["Cordis Kernel"]
-    CORDIS --> ADAPTERS["Component Adapters"]
-    ADAPTERS --> HARNESS["Pi, OpenClaw, Workflows, Custom Harness"]
+    MAIN --> HOST["Harness Host Driver\nNative CLI / SDK / Process"]
+    HOST --> HARNESS["Pi, OpenClaw, Codex CLI"]
+    MAIN --> RUNNER["Studio Runtime Process\nCompatibility and Built-ins"]
+    RUNNER --> CORDIS["Cordis Kernel\nNot a universal Harness path"]
     MAIN --> CONNECTOR["Multica Connector"]
     CONNECTOR --> MULTICA["Multica"]
 ```
@@ -61,7 +61,7 @@ flowchart LR
 
 ## 4. Cordis 的职责边界
 
-Cordis 从第一阶段进入内核，但不成为产品数据模型。
+Cordis 从第一阶段进入内核，但不成为产品数据模型，也不再是 M32 起所有真实 Harness 的统一必经运行层。新 Harness 优先使用原生 Host Driver；本节其余职责只适用于 Studio 自有 Runtime、内置生命周期能力和旧版本兼容路径。
 
 Cordis 负责：
 
@@ -75,9 +75,9 @@ Studio 负责：
 - Agent、Component、Stack、Experiment、Run 等领域模型。
 - 能力覆盖、Owner 选择、冲突和兼容性状态。
 - 版本、审计、复现和用户交互。
-- 把已验证的 Stack 编译为 Cordis Runtime Plan。
+- 把已验证的 Agent 编译为 Harness 原生配置或仅在确有需要时编译为 Cordis Runtime Plan。
 
-这不是重新实现 Cordis。领域模型回答“用户组合了什么以及为什么”，Cordis 回答“这些服务在进程中如何实例化、依赖和销毁”。Studio 不再实现第二套通用依赖注入容器或插件生命周期系统。
+这不是重新实现 Cordis。领域模型回答“用户组合了什么以及为什么”，Host Driver 回答“目标 Harness 如何原生执行”，Cordis 只回答 Studio 内部服务如何实例化、依赖和销毁。Studio 不实现第二套通用依赖注入容器，也不发明覆盖全部 Harness 的运行协议。
 
 第三方组件不直接暴露 Cordis 类型。Adapter 把稳定的 Studio Component Contract 转换为内部 Cordis Service。这层边界用于控制 Cordis API 变化和第三方耦合，不负责重复实现 Cordis 的运行能力。
 
@@ -193,7 +193,7 @@ flowchart LR
 ## 16. M11 Keychain 与最终应用 E2E
 
 - `src/adapters/keychain` 使用固定系统二进制 `/usr/bin/security` 和参数数组；提示响应经 stdin 发送，密钥不出现在 argv。
-- `SecretService` 协调系统钥匙串与 SQLite 引用。Renderer 只提交用途与账户；Main 通过固定 AppleScript 调起 macOS 原生隐藏输入，再直接写入 Keychain。状态对象不含原文，`readForRuntime` 只留在 Main 受信边界。
+- `SecretService` 协调系统钥匙串与 SQLite 引用。Renderer 只提交结构化配置动作；Main 通过固定 AppleScript 调起 macOS 原生隐藏输入，再直接写入 Keychain。状态对象不含原文；模型执行只能通过 project/Harness/Provider 校验后的短期 credential lease 取用绑定，通用密钥引用不能产生模型就绪事实。
 - `studio secret set` 必须声明 `--stdin`，机器 envelope 只返回 service、account 和状态。CLI 与 GUI 使用相同服务/账户时观察同一个本机条目。
 - 正式 `.icns` 由 electron-builder 写入应用包；发布验证读取 Info.plist 并检查实际 Resources。
 - `test:e2e:packaged` 只在测试启动参数中开放本机 DevTools 端口，直接检查打包 Renderer、中文设置页和截图。正常应用启动不监听端口。
@@ -308,3 +308,163 @@ flowchart LR
 - Preload 的六个 discovery 白名单方法统一使用相同错误净化入口，移除 Electron invoke 前缀后才交给 Renderer；输入与成功输出继续分别经过原有 Zod Schema。
 - Renderer 的失败展示是临时 UI 状态，不写 SQLite、`.agent-stack`、日志或查询历史；本地少于两字符的校验在 IPC 前完成。
 - packaged E2E 只触发本地校验，不让 CI 成功取决于 GitHub 网络。Provider 的 HTTP/timeout/network 语义由注入 Fetch 的 Adapter tests 验证，不引入产品 mock 开关。
+
+## 31. M26 工作区命令中心只读聚合契约
+
+- `CommandCenterService` 只组合 `StudioProjectService`、`AgentStatusService`、`ComponentCatalogService`、`RunService` 和 `ExperimentService` 的既有事实；纯 Core 函数负责摘要、索引、排序与搜索。
+- `command-center:snapshot` 不接受输入；`command-center:search` 只接受最长 100 字符的严格查询对象。Main 输入和输出、Preload 输入和输出均经共享 Zod Schema 复核。
+- 搜索目的地是显式 discriminated union，仅允许既有页面、实体 UUID 和固定应用动作；不接受路径、URL、数据库表达式、Runtime 参数或密钥字段。
+- Renderer 以 3 秒只读刷新投影，活动 Run 时缩短为 500ms；项目外部修改通知会立即刷新。摘要失败不阻断既有页面和本地编辑流程。
+- 命令中心不产生数据库迁移，不改变 `.agent-stack` v2、Agent Stack Package v2、Runtime Plan/子进程协议、CLI 项目命令或 release compatibility manifest。
+
+## 32. M27 本地验收门禁契约
+
+- `config/local-acceptance.json` 是验收分类清单，不是产品配置或发布兼容事实；它只列出一级导航、带用途的输入提示和最终包控制。
+- `verify-local-acceptance.mjs` 扫描 tracked 与 prospective untracked production 源码，拒绝未处置工作标记、占位/死操作、未分类 harness 和导航契约断裂。
+- packaged E2E 使用 CDP Accessibility domain 读取最终 Renderer 的可访问树，并真实点击全部一级导航；它不注入 IPC 结果或替换 Core/Runtime。
+- M27 不增加 IPC、数据库迁移、项目/包 Schema、Runtime 消息或 CLI 行为；正式分发继续携带相同业务产物。
+
+## 33. M28 证据图与最终报告契约
+
+- `config/final-evidence.json` 只存放需求/流程/证据引用和预期产物，不进入 Electron 应用包的运行配置或领域输入。
+- `evidence-ledger.mjs` 解析两张 Markdown 矩阵为唯一状态来源，验证连续 ID、状态词表、自动化引用、八状态完整性、截图 producer 和外部阻断白名单。
+- 报告生成器只读 Git HEAD、矩阵、manifest 和本地产物；输出到被忽略的 `release/`，不将本机绝对路径写回项目事实。
+- 公开 snapshot 门禁对不透明二进制采取默认拒绝，仅允许 `build/icon.icns` 与 `build/icon.png`；本地截图不可被 Git 跟踪。
+- M28 不增加 Studio Core、IPC、Preload、Renderer 业务、SQLite、项目/包 Schema、Runtime 协议或 CLI 行为。
+
+## 34. M29 稳定性与敏感诊断契约
+
+- Main 进程使用单实例锁和 `077` umask；项目写入、迁移和恢复共享同一排他锁，锁文件含进程与随机令牌，只能回收已死亡进程且超过宽限期的锁。
+- Preload 只合并完全相同的只读 IPC；任何写操作开始和结束时都清空合并表。Renderer 用递增请求序号拒绝晚到响应覆盖新状态。
+- 发布预检/提交、恢复 staging、Keychain locator、维护对话框和来源发现各自使用确定性的单航班或串行队列；不同恢复来源不得共享结果。
+- 所有外部或子进程边界必须有超时、输出上限、AbortSignal 和受控强制清理；Runtime stdout/stderr 正文不进入主日志。
+- `sensitive-data.ts` 是日志、CLI、IPC 与 Runtime 诊断净化的共享实现；凭证 URL、Provider token、Authorization 和敏感字段必须在持久化或跨边界前被拒绝或替换。
+- M29 不改变 SQLite v8、`.agent-stack` v2、Agent Stack Package v2、Runtime Plan/消息或 CLI 项目命令，正式分发无需重写业务路径。
+
+## 35. M30 单一便携事实源与 Agent 引用契约
+
+- `.agent-stack` v2 继续是项目便携事实文件；M30 收回了 Component/Stack/Owner/Version/Workflow 在 SQLite 的正常读写路径，不新建同步层。
+- SQLite v9 新增 `agent_project_links`，以稳定 Agent ID 引用项目 ID、路径和当前不可变项目 Version；Agent Version 可保存 `project-reference`，但运行/发布前必须从对应项目快照在内存中实体化并再校验。
+- 主进程的 `StudioProjectService` 是 GUI 投影与本机引用的编排器；GUI 和 CLI 共用 Studio Core 的项目读写、revision、完整性、Descriptor、Stack、Owner、Workflow 和冻结逻辑。
+- `CompatibilityAssessment` 是 Core 的可解释派生结果，根据 platform、entrypoint、capability contract、config/permission/secret 需求、能力冲突、Adapter 契约和证据等级评估；Renderer 不自行推断。
+- 运行验证只能通过已受信的精确 Runtime Adapter 白名单进入独立子进程，沿用超时、取消、强制清理、日志脱敏、Artifact 和 Receipt 边界；未知项目的静态检查不执行代码。
+- 启动迁移先写经 Core 验证的项目与 `.agent-stack.migration-backup`，再以单一 SQLite 事务写入引用并清理可携副本。任一步失败均可幂等重试；无法无损归属的孤立数据安全停止启动。
+
+M30 明确取代上文 M29 “SQLite v8 不变”的时点性描述；项目/Package 格式仍为 v2，Runtime 消息与 CLI 项目命令保持兼容。
+
+## 36. M31 兼容证据管线
+
+- `CompatibilityAssessment` 保持 Core 派生投影，但 `suggestedActions` 改为严格结构，Renderer 只映射到白名单按钮、表单或外部步骤，不自行推断兼容性。
+- Descriptor 写入边界把 validation/evidence 视为系统专用字段；Renderer 或 CLI 提交的同名值被 Core 丢弃。结构、能力、依赖、配置、权限、密钥引用、Adapter 或策略改变会把当前契约/运行证据标记 `supersededAt`。
+- 确定性契约测试仅读取经 schema 验证的 Descriptor，生成内容哈希、Receipt ID、方法和时间，不 import 项目代码。受信运行验证要求前置契约通过和精确 `trustedRuntimeAdapterRefs` 命中。
+- Main 为每个 Component 保持单航班 `AbortController`，子进程只接收 component ID、contract ID/version 和白名单 Adapter 引用。子进程中 Cordis 内核真实启动内置 Adapter 生命周期；超时/取消先协作通知，有界宽限后 `SIGKILL`。stdout/stderr 被丢弃，仅严格 Receipt 跨 IPC。
+- 归档/恢复、复查、契约测试与运行验证经同一 Studio Core 暴露给 CLI 和 schema-validated Main IPC/Preload。Renderer 仍无 Node/FS/DB/Keychain 权限。
+- M31 对 `.agent-stack` v2 作加法型字段扩展，不增加 SQLite 副本，不暴露 Cordis 类型。历史 unknown/user-confirmed 依旧可读并显式映射为非技术证据。
+
+## 37. M32–M37 Native-first Studio Core
+
+```mermaid
+flowchart LR
+    GUI["Electron GUI"] --> CORE["Studio Core"]
+    CLI["studio CLI"] --> CORE
+    CORE --> FACT[".agent-stack + revision"]
+    CORE --> PLAN["Install / Run / Publish Plans"]
+    PLAN --> MAIN["Main or CLI Host Boundary"]
+    MAIN --> DRIVER["Versioned HarnessHostDriver"]
+    DRIVER --> NATIVE["Harness Native Entry"]
+    MAIN --> CONNECTOR["Multica Connector"]
+```
+
+- Core 新增 Harness Manifest、Capability Matrix、安装方案、聊天/运行请求、冻结发布物和诊断结果等厂商无关领域类型；它们不得引用 Cordis、Electron、具体 CLI argv 或 Multica 内部类型。
+- Host Driver Registry 是代码内精确注册表。Driver 只有在版本、平台、原生入口和能力矩阵匹配时可执行；前缀、项目字段或用户确认不能授予执行权限。
+- GUI 与 CLI 先向 Core 请求确定性 Plan，再由 Main/CLI Host 执行操作系统动作并把严格结果交回 Core。Renderer 仍只通过 Zod IPC 使用该能力。
+- `.agent-stack` 的格式升级必须保留 M31 v2 的 Component/Stack/Owner/Workflow/Version 事实并提供幂等迁移；SQLite 只保存本机会话、Run、Receipt、路径索引和密钥引用。
+- 人类 Chat 允许 TTY 交互；非交互 Run 不读取 TTY。两者共享 Harness 配置编译、权限、取消、超时、输出上限和脱敏逻辑，但会话历史不进入发布 payload。
+
+### 37.1 M33 Native Agent 执行切片
+
+M33 的 GUI 与 CLI 都调用 `NativeAgentCore`。Core 从项目当前 `execution-controller` 的内置 `studio://host-drivers/*` 引用解析 Driver；Renderer 不能提交 executable、argv、工作目录或凭证。Main 为 GUI 注入当前项目，CLI 只接受项目根路径和经过 schema 校验的产品参数。
+
+`executionMode=external-harness` 是严格的 Native 路由信号。Renderer 不为该 Agent 渲染 legacy “启动本地 Run”；Main `RunService` 也会在 `runs:start` 入口按 Agent 与精确 Host Driver 投影返回语义化恢复动作。旧 Harness X/Research Y 及旧执行模式仍使用 Runtime Plan 白名单。所有写 IPC 通过 Preload 的统一错误净化入口，Electron remote-method 前缀不进入 Renderer。
+
+Agent Profile 是 `.agent-stack` 的新增向后兼容字段，包含 instructions、Markdown memory、skills、MCP server references 和 tool policy。旧项目读取时获得空 Profile；旧不可变 Version snapshot 不会因默认字段注入而改变哈希，新冻结版本显式包含 Profile。
+
+Native Chat/Run 结果写入项目旁的 `.agent-stack-local/native-history.jsonl`，使用独立文件锁和 `0600` 权限，并被 Git 排除。该历史包含消息结果，因此不会进入项目版本、Agent Stack Package 或后续 Multica payload。非交互 Run 的 idempotency key 在此本机域内去重，不改写项目 revision。
+
+测试期可按 ADR 0020 显式启用 loopback Codex simulation：真实 Pi/OpenClaw CLI 仍由各自 Host Driver 启动，但模型请求进入只监听 loopback 的 OpenAI-compatible 代理，再由隔离、只读、ephemeral 的 `codex exec` 响应。Pi/OpenClaw 配置写入 `.agent-stack-local` 下的独立状态目录，Harness 工具全部禁用。结果 Schema 记录 `modelLayer`，GUI/CLI 不得把 simulation 表述成 Harness 原生 Provider 认证；默认生产路径不启用该环境开关。
+
+Driver 进程统一使用 `shell: false`、受限输出缓冲、进程组取消和超时后的强制清理。Pi Driver 使用固定 `0.84.2` JSONL/session/Skill 参数；OpenClaw Driver 保留 `agent --local` 原生 session，并仅在新版且请求类型为 Run 时使用隔离 `agent exec`。能力降级按 ADR 0012 返回，不静默忽略。
+- 已知开源项目使用固定版本与校验和的 Install Recipe；执行前快照，成功后 Smoke Test，失败恢复。未知来源只生成 Markdown 定制任务，不进入 Driver。
+- Multica payload 由冻结 Version 纯函数物化并计算规范 JSON SHA-256。GUI 与 CLI 只提交该产物；Connector 不能读取工作区、聊天、日志或 Keychain 原文。
+
+### 37.2 M34 Multica 官方 CLI Connector
+
+`PublishService` 是 GUI/CLI 共用的发布应用 Core。`buildPublishPackage` 从项目 Version 的物化快照生成递归键排序的规范 JSON hash；Main/CLI Host 再把严格 payload 交给 `MulticaCliPublisher`。Connector 只调用最低 v0.4.32 的官方 JSON 命令，不读取 Multica 配置文件或 Token。
+
+SQLite `publish_mappings` 与 `publish_receipts` 仍是唯一发布操作事实。开发 CLI 通过 `STUDIO_USER_DATA_PATH` 或 `--data-dir` 定位同一数据库；M37 的 App 内 CLI wrapper 负责在无 Node 环境传入精确 userData。`.agent-stack` 只保存冻结便携事实，不保存远端身份或发布状态。
+
+Multica 当前没有 Agent Version 与 create 幂等键。Studio 在远端 instructions 写入 Version/hash 标记；create 前后以真实 list/get 恢复身份，已有映射只更新不重建。远端状态以 `agent get` 标记比对为准，Receipt 只记录已观察到的响应。Native Harness payload 声明 Native Host/Runtime 网络边界并省略 Cordis 版本；Cordis 只出现在历史 Studio Runtime 兼容包。
+
+### 37.3 M35 固定安装方案
+
+`InstallRecipe` 是 Core 中的不可变白名单事实，包含 repository/commit/artifact/license 及各自 SHA-256、目标 Harness 和执行策略。Renderer 只能提交经 schema 验证的来源 locator、recipe ID、Harness、revision 和确认；Main 自行注入当前项目路径。
+
+本地识别只读目录元数据与方案中的固定相对文件，拒绝符号链接；GitHub 识别不发起 clone。安装 Host 只下载注册的文本 URL，校验 Artifact 和 License 后由 Studio Core 更新 Agent Profile。`.agent-stack-local/install-snapshots` 保留 `0600` 快照；Smoke 失败通过项目锁和 revision 条件恢复，不覆盖并发新工作。
+
+未知来源只进入纯函数产生的 Markdown 定制任务。该文档可被 GUI 复制或 CLI `--output` 写入用户指定目的地，但 Studio 不自动交给任何 Agent，也不执行文档中的命令。
+
+### 37.4 M36 Codex CLI Host Driver
+
+第三个 Harness 固定为 Codex CLI `0.148.0-alpha.9`。Driver 使用官方 `codex exec --json` 非交互 JSONL 契约；Run 使用 `--ephemeral`，Chat 将 `thread.started` 的远端线程 ID 以 `0600` 权限保存到 `.agent-stack-local/codex-sessions`，后续消息通过 `codex exec resume` 续接。Studio session UUID 与 Codex thread ID 的映射不会进入 `.agent-stack` 或发布 payload。
+
+Renderer 不能提交 executable、argv、cwd 或 Codex 配置。Driver 固定加入 `--ignore-user-config`、`--ignore-rules` 与 `--skip-git-repo-check`，把 Studio `read-only/workspace` 工具策略分别映射到 Codex `read-only/workspace-write` 沙箱。Prompt 为原生输入；Studio Profile 中的 instructions、Markdown Memory 与 Skill 以显式 Prompt 上下文适配；项目 MCP 配置暂不执行并明确返回降级，避免读取或复制用户级 MCP/规则配置。
+
+### 37.5 M36 固定组件生命周期
+
+`InstallRecipe` 注册表包含 12 个 pinned content-only Skill 方案，并为 Pi/OpenClaw/Codex 保存逐 Harness 支持级别。GUI 与 CLI 的 list/check/install/update/smoke/uninstall/restore 都调用同一个 `CustomizationService`；更新检测比较 App 已审计 hash 与 `.agent-stack` Profile，不访问未固定的 upstream head。
+
+安装、更新和卸载使用项目 revision 写锁；写前快照位于 `.agent-stack-local/install-snapshots`。IPC 恢复输入只有 UUID snapshot ID，Main 从当前项目固定目录解析并拒绝符号链接，Renderer 不能提交路径。内容接线 Smoke 不启动第三方脚本；模型行为验证继续由 Native Agent Core 和 Harness 认证边界承担。
+
+### 37.6 M37 包内 CLI 与 Doctor
+
+`Contents/Resources/bin/studio` 是最终用户入口。它由 Electron Builder 在签名前放入 App，通过 `ELECTRON_RUN_AS_NODE` 使用 App 内置运行时执行 ASAR unpacked CLI，并在未覆盖时传递与 GUI 一致的 Application Support 根目录。包验证与 E2E 在不含 Node.js 的 PATH 下执行该入口。
+
+`StudioDoctorFacts` 是 Host 采集输入，`buildStudioDoctorReport` 是 GUI/CLI 共享的纯 Core，`StudioDoctorReport` 是稳定输出。Main 通过空输入 Zod IPC 采集 App/SQLite/当前项目事实；CLI 采集包内运行时和指定项目事实。两者共享 Harness Probe 和 Multica 版本/认证/Runtime 就绪检查。诊断不读取凭证原文，Harness Probe 不冒充带凭证的模型行为验收。
+
+### 37.7 M37 旧模型迁移边界
+
+项目 Schema 继续读取 `agent-loop/workflow/hybrid/external-harness`，但普通新建 Core 默认为 `external-harness`。GUI 创建 IPC 另用 literal Schema 拒绝旧模式；更新路径只能保留当前历史值或单向迁移到 Native Harness。CLI 产品命令同样拒绝旧模式，`project/workflow` 兼容命令以稳定弃用通知作为显式迁移入口。
+
+Workflow/Experiment 的 Renderer 默认仅渲染历史事实和导出能力；只有当前界面会话中的显式“进入旧版迁移工具”操作才会显示写入控件。该 UI gate 不是权限边界；Main/Core 的 revision、数据 Schema、不可变版本和 CLI 弃用契约仍是真实边界。
+
+最终包内 E2E 使用两个隔离 fixture：普通产品命令必须生成 `external-harness`；历史 Hybrid 验收只能经带 `DEPRECATED_COMMAND` 的兼容命令显式建立。不允许为测试旧 Runtime 而把普通新建路径改回旧模式。
+
+### 37.8 M37 最终包恢复与外部分发边界
+
+备份/恢复 IPC 的生产路径仍由 Main 打开 macOS 目录选择器；Renderer 输入是严格空对象或 opaque selection ID。Packaged E2E 可为 Main 注入两个仅指向临时 Application Support 的选择回调，不向 Preload/Renderer 暴露路径能力。
+
+最终 App 验收会创建备份、改写 Artifact、检查并确认恢复，然后完全退出并重新启动同一 `.app`。`applyPendingRestore` 在任何 Repository 打开前运行；验收分别比对恢复后 Artifact 与 Recovery 中的恢复前 Artifact，并检查 `last-restore.json` 在 GUI 的投影。
+
+Intel CI、Developer ID、Apple 公证和远端凭证是外部事实。无 runner 分配的 Actions job、无证书包和无认证 Doctor 都必须保留原始降级/阻断状态，不得由 fixture 冒充真实成功。
+
+### 37.9 M38 模型认证与本机 readiness
+
+`ModelConfiguration` 是 Core 中的便携事实，只包含 Harness 能力约束下的 Provider、模型和凭证需求。Provider capability 将推荐模型目录与 `customModelIds` 能力分开：Provider 和认证方式仍为固定 allowlist；声明支持自定义模型 ID 的 Driver 可以接收经过格式 Schema 校验的完整 ID，再由真实最小调用判定权限与可用性。`ProviderCredentialBinding` 与 `ModelVerification` 位于 SQLite 本机域，前者引用既有 `secret_references`，后者只保存配置哈希、稳定状态与时间，不保存请求、响应、stderr 或 token。
+
+Main 创建一个 `SecretService` 实例，同时注入通用密钥高级入口、模型认证服务和 Native Agent credential resolver。API Key 在 Host Driver 启动前最后时刻从 Keychain 解析，只进入该 Provider 固定的单次子进程交付机制；不得进入 argv、明文配置或父进程环境。子进程使用最小环境并在解析输出前执行本次 secret 的精确回显拒绝。
+
+`buildAgentReadiness` 是 GUI、CLI、冻结与发布预检共享的纯投影，组合项目验证、Harness probe、Provider/模型配置、认证状态和相同配置哈希的显式最小模型调用。Doctor 和状态刷新只采集无费用事实；只有带 `costAcknowledged: true` 的 verify 动作可以产生模型请求。Codex simulation 的结果始终排除在真实认证、冻结和发布 readiness 之外。
+
+### 37.10 引导式创建 setup session 与原子完成
+
+`AgentSetupService` 是普通 GUI 新建的 Main 边界。Renderer 通过严格 Zod IPC 读写 `AgentSetupSession`，只包含步骤、revision、名称、Harness、模型选择、Profile、脱敏认证与验证事实。SQLite v13 的 `agent_setup_sessions` 保存 `transient/saved` 会话、非敏感目录选择、MCP 配置哈希/工具名摘要和 Keychain locator；API Key 原文只由 Main 的 macOS 原生安全输入直接交给 Keychain，不进入会话、IPC 输出或 `.agent-stack`。
+
+临时会话在直接取消和下次启动时清理；只有显式“保存并退出”转为可恢复的 `saved`。状态机只允许相邻向前转换，向后恢复允许；名称、可执行 Harness 与当前认证/最小调用是基础硬门槛，能力可为空。只有已选能力的安装、支持或 MCP 批准/连接失败才增加 capability blocker。`buildAgentSetupReadiness` 复用共享模型 readiness，不让 Renderer 自行推导就绪。
+
+完成采用 staged finalize：先创建 owner-only 工作空间，由 Studio Core 初始化 `external-harness` 项目、原子安装/关联所选目录项、写入 Harness/模型/Profile，再重做所有已启用 MCP 的握手与工具发现，才建立唯一 Agent/project link、credential binding 和 verification 元数据，最后切换当前项目并删除 setup session。Agent 引用、binding、工作空间或项目切换任一步失败时执行反向补偿；setup session 与 Keychain 凭证仍可恢复，不会被误报为已完成。CLI 既有 envelope、旧执行模式读取和不可变 Version 协议不变。
+
+### 37.11 受控 MCP Runtime
+
+`McpRuntime` 位于 Main/Native 边界，只接收经 `AgentProfile` Zod schema 校验的结构化 server。stdio 经可执行文件解析后使用 `spawn(executable, argv, { shell:false, detached:true, env:minimal })`；HTTP 使用 Main 的 `net.fetch` 边界实现 Streamable HTTP，禁止重定向和 URL 凭证。两者共用 MCP 2024-11-05 initialize/initialized/tools-list/tools-call，输出大小上限、脱敏、超时、AbortSignal 和子进程组清理。同一 `cwd + server.id` 的连接使用单航班，等待者也受超时/取消约束。
+
+Pi 不获得任意进程或网络权限。`NativeAgentCore` 先对已批准 server 握手并构建工具目录，只接受 Pi 返回的一个严格 `<studio-mcp-call>` envelope，再校验 server ID 和 tool name，由 Studio 调用并把结果标记为不可信数据交回同一 Pi session。整个 Native 请求共享一个总超时；请求取消、Agent 删除与应用退出都会中断 Core 并关闭 lease。Secret 只能作为 Keychain 引用出现；当前 Runtime 对未解析引用失败关闭，不接受 Renderer 原文、URL query 或疑似凭证 argv。

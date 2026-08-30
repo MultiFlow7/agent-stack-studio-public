@@ -9,14 +9,18 @@ import {
   WarningCircle,
   XCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { Agent } from '../../../shared/agent'
-import type { RunHistoryDetail, RunRecord } from '../../../shared/run'
+import type { RunExecutionRoute, RunHistoryDetail, RunRecord } from '../../../shared/run'
 import { localExecutionModeDescriptions } from '../../../shared/trusted-execution'
 import { executionModeLabels, runStatusLabels } from '../copy'
+import { NativeAgentPanel } from './NativeAgentPanel'
 
 interface RunsViewProps {
   agentId?: string
+  firstChat?: boolean
+  onOpenSetup?: () => void
+  runId?: string
 }
 
 const activeStatuses = new Set<RunRecord['status']>(['queued', 'starting', 'running', 'cancelling'])
@@ -59,9 +63,10 @@ function executionBinding(detail: RunHistoryDetail): string {
   }
 }
 
-export function RunsView({ agentId }: RunsViewProps) {
+export function RunsView({ agentId, firstChat = false, onOpenSetup, runId }: RunsViewProps) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [runs, setRuns] = useState<RunRecord[]>([])
+  const [routes, setRoutes] = useState<Map<string, RunExecutionRoute>>(new Map())
   const [selectedAgentId, setSelectedAgentId] = useState(agentId ?? '')
   const [selectedRunId, setSelectedRunId] = useState<string>()
   const [detail, setDetail] = useState<RunHistoryDetail>()
@@ -71,29 +76,44 @@ export function RunsView({ agentId }: RunsViewProps) {
   const [error, setError] = useState<string>()
   const [isStarting, setStarting] = useState(false)
   const [isCancelling, setCancelling] = useState(false)
+  const listRequest = useRef(0)
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++listRequest.current
     try {
       const [nextAgents, nextRuns] = await Promise.all([
         window.studio.agents.list(),
         window.studio.runs.list(agentId ?? null),
       ])
+      const nextRoutes = await Promise.all(
+        nextAgents.map(
+          async (agent) => [agent.id, await window.studio.runs.route(agent.id)] as const,
+        ),
+      )
+      if (request !== listRequest.current) return
       setAgents(nextAgents)
       setRuns(nextRuns)
+      setRoutes(new Map(nextRoutes))
       setSelectedAgentId((current) => current || agentId || nextAgents[0]?.id || '')
       setStatus('ready')
       setError(undefined)
     } catch (loadError) {
+      if (request !== listRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取本地 Run。')
       setStatus('error')
     }
   }, [agentId])
 
   const loadDetail = useCallback(async (runId: string) => {
+    const request = ++detailRequest.current
     try {
-      setDetail(await window.studio.runs.get(runId))
+      const nextDetail = await window.studio.runs.get(runId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setError(undefined)
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取 Run 详情。')
     }
   }, [])
@@ -101,6 +121,12 @@ export function RunsView({ agentId }: RunsViewProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!runId) return
+    setSelectedRunId(runId)
+    void loadDetail(runId)
+  }, [loadDetail, runId])
 
   const hasActiveRun = useMemo(() => runs.some((run) => activeStatuses.has(run.status)), [runs])
 
@@ -148,9 +174,13 @@ export function RunsView({ agentId }: RunsViewProps) {
 
   const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]))
   const selectedAgent = agents.find(({ id }) => id === selectedAgentId)
+  const selectedRoute = selectedAgent ? routes.get(selectedAgent.id) : undefined
 
   return (
     <div className="runs-page">
+      {selectedRoute?.kind === 'native' ? (
+        <NativeAgentPanel firstChat={firstChat} onOpenSetup={onOpenSetup} />
+      ) : null}
       {!agentId ? (
         <header className="page-header">
           <div>
@@ -160,66 +190,86 @@ export function RunsView({ agentId }: RunsViewProps) {
         </header>
       ) : null}
 
-      <form className="run-launcher" onSubmit={(event) => void startRun(event)}>
-        <div className="run-launcher__copy">
-          <span className="eyebrow">本地执行</span>
-          <h2>启动可复现 Run</h2>
-          <p>使用不可变 Agent 版本与已通过预检的 Runtime Plan；每次启动全新子进程。</p>
-        </div>
-        {selectedAgent ? (
-          <div className="run-mode-boundary" role="note">
-            <strong>{executionModeLabels[selectedAgent.executionMode]}</strong>
-            <span>{localExecutionModeDescriptions[selectedAgent.executionMode]}</span>
-            <small>只执行 Studio 白名单内置 Adapter；导入仓库仍只做静态检查。</small>
+      {selectedRoute?.kind === 'native' ? (
+        <section className="run-launcher run-launcher--native" role="note">
+          <div className="run-launcher__copy">
+            <span className="eyebrow">Native-first</span>
+            <h2>此 Agent 不使用旧版本地 Run</h2>
+            <p>
+              {selectedRoute.harnessId === 'pi'
+                ? 'Pi'
+                : selectedRoute.harnessId === 'openclaw'
+                  ? 'OpenClaw'
+                  : 'Codex CLI'}{' '}
+              通过上方 Native Harness 入口聊天或单次运行；执行结果保存在本机 Native 历史中。
+            </p>
           </div>
-        ) : null}
-        {!agentId ? (
-          <label className="field">
-            <span>Agent</span>
-            <select
-              disabled={agents.length === 0}
-              onChange={(event) => setSelectedAgentId(event.target.value)}
+        </section>
+      ) : selectedRoute?.kind === 'legacy' ? (
+        <form className="run-launcher" onSubmit={(event) => void startRun(event)}>
+          <div className="run-launcher__copy">
+            <span className="eyebrow">本地执行</span>
+            <h2>启动可复现 Run</h2>
+            <p>使用不可变 Agent 版本与已通过预检的 Runtime Plan；每次启动全新子进程。</p>
+          </div>
+          {selectedAgent ? (
+            <div className="run-mode-boundary" role="note">
+              <strong>{executionModeLabels[selectedAgent.executionMode]}</strong>
+              <span>{localExecutionModeDescriptions[selectedAgent.executionMode]}</span>
+              <small>只执行 Studio 白名单内置 Adapter；导入仓库仍只做静态检查。</small>
+            </div>
+          ) : null}
+          {!agentId ? (
+            <label className="field">
+              <span>Agent</span>
+              <select
+                disabled={agents.length === 0}
+                onChange={(event) => setSelectedAgentId(event.target.value)}
+                required
+                value={selectedAgentId}
+              >
+                {agents.length === 0 ? <option value="">尚无 Agent</option> : null}
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="field run-launcher__prompt">
+            <span>样例任务</span>
+            <textarea
+              maxLength={1_000}
+              onChange={(event) => setPrompt(event.target.value)}
               required
-              value={selectedAgentId}
+              rows={3}
+              value={prompt}
+            />
+          </label>
+          <label className="field run-launcher__timeout">
+            <span>超时</span>
+            <select
+              onChange={(event) => setTimeoutMs(Number(event.target.value))}
+              value={timeoutMs}
             >
-              {agents.length === 0 ? <option value="">尚无 Agent</option> : null}
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
+              <option value={500}>500 毫秒</option>
+              <option value={1_000}>1 秒</option>
+              <option value={5_000}>5 秒</option>
+              <option value={10_000}>10 秒</option>
+              <option value={30_000}>30 秒</option>
             </select>
           </label>
-        ) : null}
-        <label className="field run-launcher__prompt">
-          <span>样例任务</span>
-          <textarea
-            maxLength={1_000}
-            onChange={(event) => setPrompt(event.target.value)}
-            required
-            rows={3}
-            value={prompt}
-          />
-        </label>
-        <label className="field run-launcher__timeout">
-          <span>超时</span>
-          <select onChange={(event) => setTimeoutMs(Number(event.target.value))} value={timeoutMs}>
-            <option value={500}>500 毫秒</option>
-            <option value={1_000}>1 秒</option>
-            <option value={5_000}>5 秒</option>
-            <option value={10_000}>10 秒</option>
-            <option value={30_000}>30 秒</option>
-          </select>
-        </label>
-        <button
-          className="button button--primary run-launcher__button"
-          disabled={isStarting || !selectedAgentId}
-          type="submit"
-        >
-          <Play aria-hidden="true" size={17} weight="fill" />
-          {isStarting ? '正在启动…' : '启动本地 Run'}
-        </button>
-      </form>
+          <button
+            className="button button--primary run-launcher__button"
+            disabled={isStarting || !selectedAgentId}
+            type="submit"
+          >
+            <Play aria-hidden="true" size={17} weight="fill" />
+            {isStarting ? '正在启动…' : '启动本地 Run'}
+          </button>
+        </form>
+      ) : null}
 
       {error ? (
         <div className="detail-feedback detail-feedback--error" role="alert">

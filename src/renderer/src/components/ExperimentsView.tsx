@@ -9,13 +9,14 @@ import {
   Stop,
   WarningCircle,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { Agent } from '../../../shared/agent'
 import type { ExperimentCell, ExperimentDetail, ExperimentRecord } from '../../../shared/experiment'
 import { experimentCellStatusLabels, experimentStatusLabels } from '../copy'
 
 interface ExperimentsViewProps {
   agentId?: string
+  experimentId?: string
 }
 
 const activeStatuses = new Set<ExperimentRecord['status']>(['running', 'cancelling'])
@@ -38,7 +39,8 @@ function deltaLabel(value: number | null): string {
   return `${value > 0 ? '+' : ''}${value} ms`
 }
 
-export function ExperimentsView({ agentId }: ExperimentsViewProps) {
+export function ExperimentsView({ agentId, experimentId }: ExperimentsViewProps) {
+  const [migrationMode, setMigrationMode] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [experiments, setExperiments] = useState<ExperimentRecord[]>([])
   const [detail, setDetail] = useState<ExperimentDetail>()
@@ -62,31 +64,40 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
   const [repetitions, setRepetitions] = useState(1)
   const [matrixFilter, setMatrixFilter] = useState<MatrixFilter>('all')
   const [matrixQuery, setMatrixQuery] = useState('')
+  const listRequest = useRef(0)
+  const detailRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++listRequest.current
     try {
       const [nextAgents, nextExperiments] = await Promise.all([
         window.studio.agents.list(),
         window.studio.experiments.list(agentId ?? null),
       ])
+      if (request !== listRequest.current) return
       setAgents(nextAgents)
       setExperiments(nextExperiments)
       setSelectedAgentId((current) => current || agentId || nextAgents[0]?.id || '')
       setStatus('ready')
       setError(undefined)
     } catch (loadError) {
+      if (request !== listRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取本地实验。')
       setStatus('error')
     }
   }, [agentId])
 
   const loadDetail = useCallback(async (experimentId: string) => {
+    const request = ++detailRequest.current
     try {
-      setDetail(await window.studio.experiments.get(experimentId))
+      const nextDetail = await window.studio.experiments.get(experimentId)
+      if (request !== detailRequest.current) return
+      setDetail(nextDetail)
       setMatrixFilter('all')
       setMatrixQuery('')
       setError(undefined)
     } catch (loadError) {
+      if (request !== detailRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法读取实验详情。')
     }
   }, [])
@@ -94,6 +105,10 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (experimentId) void loadDetail(experimentId)
+  }, [experimentId, loadDetail])
 
   const hasActiveExperiment = useMemo(
     () => experiments.some((experiment) => activeStatuses.has(experiment.status)),
@@ -245,30 +260,54 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
       {!agentId ? (
         <header className="page-header">
           <div>
-            <h1>实验</h1>
-            <p>锁定控制变量，只比较明确选择的变化。</p>
+            <h1>旧版 Experiment 历史</h1>
+            <p>默认只读保留本地实验与复现证据。</p>
           </div>
           <button
             className="button button--primary"
-            onClick={() => setShowCreate(true)}
+            onClick={() => {
+              setMigrationMode((current) => !current)
+              setShowCreate(false)
+            }}
             type="button"
           >
-            <Plus aria-hidden="true" size={17} /> 创建实验
+            {migrationMode ? '退出旧版迁移工具' : '进入旧版 Experiment 迁移工具'}
           </button>
         </header>
       ) : (
         <div className="context-actions">
           <button
-            className="button button--primary"
-            onClick={() => setShowCreate(true)}
+            className="button button--secondary"
+            onClick={() => {
+              setMigrationMode((current) => !current)
+              setShowCreate(false)
+            }}
             type="button"
           >
-            <Plus aria-hidden="true" size={17} /> 从当前版本创建实验
+            {migrationMode ? '退出旧版迁移工具' : '进入旧版 Experiment 迁移工具'}
           </button>
+          {migrationMode ? (
+            <button
+              className="button button--primary"
+              onClick={() => setShowCreate(true)}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={17} /> 从当前版本创建实验
+            </button>
+          ) : null}
         </div>
       )}
 
-      {showCreate ? (
+      <div className="legacy-boundary-note">
+        <strong>{migrationMode ? '旧版迁移工具已开启' : 'Experiment 历史只读'}</strong>
+        <span>
+          {migrationMode
+            ? '仅用于收束旧实验定义、运行和导出；新 Agent 请使用 Native Harness run/chat。'
+            : '不会创建、运行、取消或刷新 Drift；JSON/CSV 导出仍可用于迁移。'}
+        </span>
+      </div>
+
+      {showCreate && migrationMode ? (
         <form className="experiment-create" onSubmit={(event) => void createExperiment(event)}>
           <header>
             <div>
@@ -403,14 +442,20 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
         <section className="experiment-empty">
           <Flask aria-hidden="true" size={30} />
           <h2>还没有对照实验</h2>
-          <p>从已通过预检的 Agent Version 锁定控制变量，再选择 Prompt 与随机种子。</p>
-          <button
-            className="button button--primary"
-            onClick={() => setShowCreate(true)}
-            type="button"
-          >
-            创建第一个实验
-          </button>
+          <p>
+            {migrationMode
+              ? '迁移工具可从已冻结版本创建定义。'
+              : '普通 Agent 路径不再创建 Experiment；现有历史会继续显示。'}
+          </p>
+          {migrationMode ? (
+            <button
+              className="button button--primary"
+              onClick={() => setShowCreate(true)}
+              type="button"
+            >
+              创建第一个实验
+            </button>
+          ) : null}
         </section>
       ) : null}
 
@@ -453,36 +498,38 @@ export function ExperimentsView({ agentId }: ExperimentsViewProps) {
               <h2>{selected?.name}</h2>
               <p>{selected?.researchQuestion}</p>
             </div>
-            <div className="experiment-detail__actions">
-              <button
-                className="button button--secondary"
-                disabled={Boolean(busyAction)}
-                onClick={() => void act('drift')}
-                type="button"
-              >
-                <ShieldCheck aria-hidden="true" size={16} /> 检查 Drift
-              </button>
-              {selected?.status === 'ready' || selected?.status === 'blocked' ? (
+            {migrationMode ? (
+              <div className="experiment-detail__actions">
                 <button
-                  className="button button--primary"
-                  disabled={Boolean(busyAction) || selected.drift.status === 'blocked'}
-                  onClick={() => void act('start')}
-                  type="button"
-                >
-                  <Play aria-hidden="true" size={16} weight="fill" /> 运行矩阵
-                </button>
-              ) : null}
-              {selected?.status === 'running' ? (
-                <button
-                  className="button button--danger-quiet"
+                  className="button button--secondary"
                   disabled={Boolean(busyAction)}
-                  onClick={() => void act('cancel')}
+                  onClick={() => void act('drift')}
                   type="button"
                 >
-                  <Stop aria-hidden="true" size={16} /> 取消实验
+                  <ShieldCheck aria-hidden="true" size={16} /> 检查 Drift
                 </button>
-              ) : null}
-            </div>
+                {selected?.status === 'ready' || selected?.status === 'blocked' ? (
+                  <button
+                    className="button button--primary"
+                    disabled={Boolean(busyAction) || selected.drift.status === 'blocked'}
+                    onClick={() => void act('start')}
+                    type="button"
+                  >
+                    <Play aria-hidden="true" size={16} weight="fill" /> 运行矩阵
+                  </button>
+                ) : null}
+                {selected?.status === 'running' ? (
+                  <button
+                    className="button button--danger-quiet"
+                    disabled={Boolean(busyAction)}
+                    onClick={() => void act('cancel')}
+                    type="button"
+                  >
+                    <Stop aria-hidden="true" size={16} /> 取消实验
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </header>
 
           <section

@@ -1,5 +1,5 @@
 import { ArrowClockwise, CheckCircle, Key, Trash, WarningCircle } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { SecretReferenceStatus } from '../../../shared/secret-reference'
 
 export function SecretReferencesPanel({ agentId }: { agentId: string }) {
@@ -11,14 +11,19 @@ export function SecretReferencesPanel({ agentId }: { agentId: string }) {
   const [label, setLabel] = useState('')
   const [account, setAccount] = useState('')
   const [pendingDelete, setPendingDelete] = useState<string>()
+  const loadRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++loadRequest.current
     setLoadState('loading')
     setError(undefined)
     try {
-      setReferences(await window.studio.secrets.list(agentId))
+      const nextReferences = await window.studio.secrets.list(agentId)
+      if (request !== loadRequest.current) return
+      setReferences(nextReferences)
       setLoadState('ready')
     } catch (loadError) {
+      if (request !== loadRequest.current) return
       setError(loadError instanceof Error ? loadError.message : '无法检查钥匙串状态。')
       setLoadState('error')
     }
@@ -74,8 +79,11 @@ export function SecretReferencesPanel({ agentId }: { agentId: string }) {
     <section aria-labelledby="secret-references-title" className="secret-reference-section">
       <header>
         <div>
-          <h2 id="secret-references-title">密钥引用</h2>
-          <p>原文只写入当前 Mac 的登录钥匙串，Renderer、SQLite、备份和版本都不会收到原文。</p>
+          <h2 id="secret-references-title">高级密钥引用</h2>
+          <p>
+            这些是尚未绑定到 Provider 的高级引用，不会让 Agent 或模型变为就绪。原文只写入当前 Mac
+            的登录钥匙串，Renderer、SQLite、备份和版本都不会收到原文。
+          </p>
         </div>
         {loadState === 'ready' ? (
           <button
@@ -133,7 +141,7 @@ export function SecretReferencesPanel({ agentId }: { agentId: string }) {
                     ) : (
                       <WarningCircle aria-hidden="true" size={16} weight="fill" />
                     )}
-                    {reference.configured ? '已配置' : '本机缺失'}
+                    {reference.configured ? '钥匙串中已保存·未绑定' : '本机缺失'}
                   </span>
                   {pendingDelete === reference.id ? (
                     <span className="secret-reference-list__confirm">
@@ -172,8 +180,8 @@ export function SecretReferencesPanel({ agentId }: { agentId: string }) {
             <div className="secret-reference-empty">
               <Key aria-hidden="true" size={19} />
               <span>
-                <strong>尚未配置密钥</strong>
-                <small>添加后，Studio 只保留服务与账户引用。</small>
+                <strong>尚无高级密钥引用</strong>
+                <small>模型所需凭证请在 Agent 构建流程的“模型与认证”中配置。</small>
               </span>
             </div>
           )}

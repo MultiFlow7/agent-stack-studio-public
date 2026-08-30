@@ -1,5 +1,9 @@
-import { CheckCircle, ShieldCheck, WarningCircle } from '@phosphor-icons/react'
-import type { CompatibilityRemediationTask } from '../../../shared/remediation'
+import { Check, CheckCircle, Copy, WarningCircle } from '@phosphor-icons/react'
+import { useId, useMemo, useState } from 'react'
+import {
+  buildCodingAgentRemediationPrompt,
+  type CompatibilityRemediationTask,
+} from '../../../shared/remediation'
 
 interface RemediationTaskListProps {
   tasks: CompatibilityRemediationTask[]
@@ -13,21 +17,69 @@ const kindLabels: Record<CompatibilityRemediationTask['kind'], string> = {
 }
 
 export function RemediationTaskList({ tasks }: RemediationTaskListProps) {
+  const feedbackId = useId()
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle')
+  const codingAgentPrompt = useMemo(
+    () => (tasks.length > 0 ? buildCodingAgentRemediationPrompt(tasks) : ''),
+    [tasks],
+  )
+
   if (tasks.length === 0) return null
 
   const requiredCount = tasks.filter(({ status }) => status === 'required').length
+
+  async function copyForCodingAgent(): Promise<void> {
+    setCopyStatus('copying')
+    try {
+      await window.studio.discovery.copy(codingAgentPrompt)
+      setCopyStatus('copied')
+    } catch {
+      setCopyStatus('error')
+    }
+  }
+
   return (
     <section aria-label="兼容性处置任务" className="remediation-tasks">
       <header>
-        <div>
+        <div className="remediation-tasks__intro">
           <span className="eyebrow">结构化处置链</span>
           <h3>Adapter / Fork 处置任务</h3>
           <p>
-            {requiredCount} 项待完成。任务来自 Descriptor；Studio
+            {requiredCount} 项待完成。复制完整任务交给 Coding Agent；Studio
             不会自动生成、加载或执行第三方代码。
           </p>
         </div>
-        <ShieldCheck aria-hidden="true" size={22} />
+        <div className="remediation-tasks__actions">
+          <button
+            aria-describedby={copyStatus === 'idle' ? undefined : feedbackId}
+            className="button button--primary remediation-tasks__copy"
+            disabled={copyStatus === 'copying'}
+            onClick={() => void copyForCodingAgent()}
+            type="button"
+          >
+            {copyStatus === 'copied' ? (
+              <Check aria-hidden="true" size={15} weight="bold" />
+            ) : (
+              <Copy aria-hidden="true" size={15} />
+            )}
+            {copyStatus === 'copying'
+              ? '正在复制…'
+              : copyStatus === 'copied'
+                ? '提示词已复制'
+                : '复制给 Coding Agent'}
+          </button>
+          <span
+            className={`remediation-tasks__feedback remediation-tasks__feedback--${copyStatus}`}
+            id={feedbackId}
+            role={copyStatus === 'error' ? 'alert' : 'status'}
+          >
+            {copyStatus === 'copied'
+              ? '可直接粘贴到 Coding Agent'
+              : copyStatus === 'error'
+                ? '复制失败，请重试'
+                : ''}
+          </span>
+        </div>
       </header>
       <ol>
         {tasks.map((task) => (

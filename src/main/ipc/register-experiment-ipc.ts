@@ -1,5 +1,5 @@
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
-import { writeFile } from 'node:fs/promises'
+import { chmod, writeFile } from 'node:fs/promises'
 import {
   createExperimentInputSchema,
   experimentDetailSchema,
@@ -67,7 +67,8 @@ export function registerExperimentIpc(options: {
               filters: [{ name: format.toUpperCase(), extensions: [format] }],
             })
         if (result.canceled || !result.filePath) return { status: 'cancelled' as const }
-        await writeFile(result.filePath, exported.contents, 'utf8')
+        await writeFile(result.filePath, exported.contents, { encoding: 'utf8', mode: 0o600 })
+        await chmod(result.filePath, 0o600)
         return { status: 'saved' as const, fileName: exported.fileName }
       },
     }),

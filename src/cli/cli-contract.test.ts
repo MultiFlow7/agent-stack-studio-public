@@ -1,17 +1,63 @@
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { StudioCoreError } from '../core/project-errors'
-import type { StudioProject } from '../core/project-model'
+import type { ProjectComponent, StudioProject } from '../core/project-model'
 import type { SourceDiscoveryProvider } from '../core/source-discovery'
 import type { DiscoveredRepository } from '../shared/source-discovery'
 import type { KeychainAdapter } from '../adapters/keychain/macos-keychain-adapter'
-import { executeCliCommand, parseArguments } from './studio'
+import { executeCliCommand, parseArguments, type CliDependencies } from './studio'
 import { verifyAgentStackPackage } from '../core/agent-stack-package'
+import type { NativeAgentCore } from '../core/native-agent-core'
+import type { StudioDoctorFacts } from '../shared/doctor'
 
 const roots: string[] = []
+
+function doctorFacts(): StudioDoctorFacts {
+  return {
+    application: {
+      version: '0.9.0',
+      platform: 'darwin',
+      architecture: 'arm64',
+      packaged: true,
+      cliExecutable: true,
+      bundledCliRuntime: true,
+    },
+    data: null,
+    project: {
+      status: 'healthy',
+      name: 'M32 product CLI',
+      revision: 2,
+      formatVersion: 2,
+      versionsChecked: 0,
+      message: '项目事实和内容哈希已验证。',
+    },
+    harnesses: ['pi', 'openclaw', 'codex'].map((id) => ({
+      id: id as 'pi' | 'openclaw' | 'codex',
+      label: id,
+      executable: id,
+      status: 'ready' as const,
+      version: '1.0.0',
+      requiredVersion: '1.0.0',
+      capabilities: {
+        prompt: 'native' as const,
+        skills: 'native' as const,
+        memory: 'native' as const,
+        mcp: 'native' as const,
+        sessions: 'native' as const,
+      },
+      detail: `${id} 可用。`,
+    })),
+    multica: {
+      status: 'not-installed',
+      runtimeCount: 0,
+      onlineRuntimeCount: 0,
+      message: '未找到 Multica CLI。',
+    },
+  }
+}
 
 async function root(): Promise<string> {
   const value = await mkdtemp(path.join(tmpdir(), 'studio-cli-'))
@@ -24,6 +70,386 @@ afterEach(async () => {
 })
 
 describe('studio CLI contract', () => {
+  it('statically recognizes known sources and writes complete unknown-source tasks', async () => {
+    const outputRoot = await root()
+    const inspected = await executeCliCommand(
+      parseArguments([
+        'customize',
+        'inspect',
+        'https://github.com/anthropics/skills',
+        '--harness',
+        'openclaw',
+        '--json',
+      ]),
+    )
+    expect(inspected).toMatchObject({
+      command: 'customize inspect',
+      data: {
+        status: 'known',
+        recipe: {
+          id: 'anthropic-algorithmic-art',
+          executionPolicy: 'content-only',
+        },
+      },
+    })
+
+    const unknown = path.join(outputRoot, 'unknown-source')
+    const output = path.join(outputRoot, 'handoffs', 'unknown.md')
+    await mkdir(unknown)
+    await writeFile(path.join(unknown, 'package.json'), '{"name":"unknown-source"}\n')
+    const task = await executeCliCommand(
+      parseArguments([
+        'customize',
+        'task',
+        unknown,
+        '--harness',
+        'pi',
+        '--project',
+        outputRoot,
+        '--output',
+        output,
+        '--json',
+      ]),
+    )
+    expect(task).toMatchObject({
+      command: 'customize task',
+      data: { outputPath: output, recognition: { status: 'unknown' } },
+    })
+    const markdown = await readFile(output, 'utf8')
+    expect(markdown).toContain('## 强制安全边界')
+    expect(markdown).toContain('## 能力映射待办')
+    expect(markdown).toContain('## 验收条件')
+
+    await expect(
+      executeCliCommand(
+        parseArguments([
+          'customize',
+          'install',
+          'anthropic-algorithmic-art',
+          '--harness',
+          'openclaw',
+          '--project',
+          outputRoot,
+          '--revision',
+          '0',
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: 'USAGE_ERROR' })
+  })
+
+  it('routes component lifecycle commands through one customization service', async () => {
+    const projectPath = await root()
+    const check = vi.fn().mockResolvedValue([])
+    const install = vi.fn().mockResolvedValue({ status: 'reused', operation: 'update' })
+    const smoke = vi.fn().mockResolvedValue({ status: 'passed' })
+    const uninstall = vi.fn().mockResolvedValue({ status: 'uninstalled' })
+    const restore = vi.fn().mockResolvedValue({ status: 'restored' })
+    const customization = {
+      recognize: vi.fn(),
+      task: vi.fn(),
+      install,
+      check,
+      smoke,
+      uninstall,
+      restore,
+      cancel: vi.fn(),
+    } as unknown as NonNullable<CliDependencies['customization']>
+
+    const listed = await executeCliCommand(
+      parseArguments(['customize', 'list', '--harness', 'codex', '--json']),
+      { customization },
+    )
+    expect(
+      (listed.data as { recipes: Array<{ id: string }> }).recipes.map(({ id }) => id),
+    ).toContain('anthropic-brand-guidelines')
+    await executeCliCommand(
+      parseArguments(['customize', 'check', '--harness', 'codex', '--project', projectPath]),
+      { customization },
+    )
+    await executeCliCommand(
+      parseArguments([
+        'customize',
+        'update',
+        'anthropic-brand-guidelines',
+        '--harness',
+        'codex',
+        '--project',
+        projectPath,
+        '--revision',
+        '4',
+        '--confirm',
+      ]),
+      { customization },
+    )
+    await executeCliCommand(
+      parseArguments([
+        'customize',
+        'smoke',
+        'anthropic-brand-guidelines',
+        '--harness',
+        'codex',
+        '--project',
+        projectPath,
+      ]),
+      { customization },
+    )
+    await executeCliCommand(
+      parseArguments([
+        'customize',
+        'uninstall',
+        'anthropic-brand-guidelines',
+        '--harness',
+        'codex',
+        '--project',
+        projectPath,
+        '--revision',
+        '4',
+        '--confirm',
+      ]),
+      { customization },
+    )
+    await executeCliCommand(
+      parseArguments([
+        'customize',
+        'restore',
+        '30000000-0000-4000-8000-000000000003',
+        '--project',
+        projectPath,
+        '--revision',
+        '5',
+        '--confirm',
+      ]),
+      { customization },
+    )
+
+    expect(check).toHaveBeenCalledWith({ projectPath, harnessId: 'codex' })
+    expect(install).toHaveBeenCalledWith(expect.objectContaining({ operation: 'update' }))
+    expect(smoke).toHaveBeenCalledWith(
+      expect.objectContaining({ recipeId: 'anthropic-brand-guidelines' }),
+    )
+    expect(uninstall).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 4 }))
+    expect(restore).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 5 }))
+  })
+
+  it('routes Multica publish commands through the injected shared service and requires confirmation', async () => {
+    const projectRoot = await root()
+    const runtimeId = '50000000-0000-4000-8000-000000000001'
+    const remoteAgentId = '60000000-0000-4000-8000-000000000001'
+    await executeCliCommand(
+      parseArguments(['agent', 'create', projectRoot, '--name', 'M34 publish CLI']),
+    )
+    await executeCliCommand(
+      parseArguments(['harness', 'select', 'openclaw', '--project', projectRoot]),
+    )
+    const frozen = await executeCliCommand(
+      parseArguments(['stack', 'freeze', '--project', projectRoot]),
+    )
+    const frozenData = frozen.data as {
+      version: { id: string }
+      result: { project: { id: string } }
+    }
+    const version = frozenData.version
+    const projectId = frozenData.result.project.id
+    const preview = {
+      target: { id: 'studio://publishers/multica-cli' },
+      package: { contentHash: 'b'.repeat(64) },
+      validation: { status: 'ready', issues: [], checkedAt: '2026-08-23T00:00:00.000Z' },
+      priorReceipt: null,
+    }
+    const publishing = {
+      runtimes: vi.fn().mockResolvedValue([
+        {
+          id: runtimeId,
+          label: 'OpenClaw local',
+          provider: 'openclaw',
+          status: 'online',
+        },
+      ]),
+      preview: vi.fn().mockResolvedValue(preview),
+      publish: vi.fn().mockResolvedValue({
+        reused: false,
+        receipt: { status: 'succeeded', remoteAgentId },
+      }),
+      status: vi.fn().mockResolvedValue({ state: 'in-sync' }),
+      history: vi.fn().mockReturnValue({ receipts: [], mapping: null }),
+    } as unknown as NonNullable<CliDependencies['publishing']>
+    const dependencies = { publishing } satisfies CliDependencies
+
+    await expect(
+      executeCliCommand(parseArguments(['publish', 'runtimes', '--json']), dependencies),
+    ).resolves.toMatchObject({ data: { runtimes: [{ id: runtimeId }] } })
+    const validated = await executeCliCommand(
+      parseArguments([
+        'publish',
+        'validate',
+        '--project',
+        projectRoot,
+        '--version',
+        version.id,
+        '--runtime-id',
+        runtimeId,
+        '--json',
+      ]),
+      dependencies,
+    )
+    expect(validated.data).toBe(preview)
+    expect(publishing.preview).toHaveBeenCalledWith({
+      targetId: 'studio://publishers/multica-cli',
+      agentId: projectId,
+      agentVersionId: version.id,
+      runtimeId,
+    })
+    await expect(
+      executeCliCommand(
+        parseArguments(['publish', 'publish', '--project', projectRoot, '--version', version.id]),
+        dependencies,
+      ),
+    ).rejects.toMatchObject({ code: 'USAGE_ERROR' })
+    await expect(
+      executeCliCommand(
+        parseArguments([
+          'publish',
+          'publish',
+          '--project',
+          projectRoot,
+          '--version',
+          version.id,
+          '--runtime-id',
+          runtimeId,
+          '--confirm',
+        ]),
+        dependencies,
+      ),
+    ).resolves.toMatchObject({ data: { receipt: { remoteAgentId } } })
+    expect(publishing.publish).toHaveBeenCalledWith({
+      targetId: 'studio://publishers/multica-cli',
+      agentId: projectId,
+      agentVersionId: version.id,
+      runtimeId,
+      confirmed: true,
+    })
+  })
+
+  it('maps Multica Runtime transport failures to the stable CLI exit-code domain', async () => {
+    const publishing = {
+      runtimes: vi.fn().mockRejectedValue(new Error('private transport detail')),
+      preview: vi.fn(),
+      publish: vi.fn(),
+      status: vi.fn(),
+      history: vi.fn(),
+    } as unknown as NonNullable<CliDependencies['publishing']>
+
+    await expect(
+      executeCliCommand(parseArguments(['publish', 'runtimes', '--json']), { publishing }),
+    ).rejects.toMatchObject({
+      code: 'MULTICA_CLI_UNAVAILABLE',
+      message: 'Multica Runtime 查询失败或超时；未执行远端写入。',
+    })
+  })
+
+  it('routes M32 product commands through the same Core and reports legacy aliases', async () => {
+    const projectRoot = await root()
+    await expect(
+      executeCliCommand(
+        parseArguments([
+          'agent',
+          'create',
+          path.join(projectRoot, 'old-mode'),
+          '--execution-mode',
+          'hybrid',
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: 'USAGE_ERROR' })
+    const legacy = await executeCliCommand(
+      parseArguments(['project', 'init', projectRoot, '--name', 'M32 product CLI']),
+    )
+    expect(legacy).toMatchObject({
+      command: 'project init',
+      notices: [
+        {
+          code: 'DEPRECATED_COMMAND',
+          replacement: 'studio agent create',
+        },
+      ],
+    })
+    expect(legacy.data).toMatchObject({ project: { stack: { executionMode: 'external-harness' } } })
+
+    const inspected = await executeCliCommand(
+      parseArguments(['agent', 'inspect', '--project', projectRoot, '--json']),
+    )
+    expect(inspected).toMatchObject({
+      command: 'agent inspect',
+      data: { project: { name: 'M32 product CLI' } },
+    })
+    expect(inspected.notices).toBeUndefined()
+
+    await executeCliCommand(
+      parseArguments([
+        'harness',
+        'import',
+        path.resolve('src/test/fixtures/m7/harness-x'),
+        '--project',
+        projectRoot,
+      ]),
+    )
+    await executeCliCommand(
+      parseArguments([
+        'component',
+        'import',
+        path.resolve('src/test/fixtures/m7/research-y'),
+        '--project',
+        projectRoot,
+      ]),
+    )
+    const harnesses = await executeCliCommand(
+      parseArguments(['harness', 'list', '--project', projectRoot]),
+      {
+        nativeAgent: {
+          probes: () => Promise.resolve([]),
+        } as unknown as NativeAgentCore,
+      },
+    )
+    expect(harnesses).toMatchObject({
+      command: 'harness list',
+      data: { components: [{ descriptor: { id: 'fixture.harness-x' } }] },
+    })
+    expect(
+      (harnesses.data as { components: ProjectComponent[] }).components.some(
+        ({ descriptor }) => descriptor.id === 'fixture.research-y',
+      ),
+    ).toBe(false)
+
+    const harness = (harnesses.data as { components: ProjectComponent[] }).components[0]
+    expect(harness).toBeDefined()
+    if (!harness) throw new Error('Harness fixture missing from filtered product list.')
+    await expect(
+      executeCliCommand(
+        parseArguments(['harness', 'select', harness.id, '--project', projectRoot]),
+      ),
+    ).resolves.toMatchObject({ command: 'harness select' })
+    await expect(
+      executeCliCommand(parseArguments(['doctor', '--project', projectRoot]), {
+        doctorFacts: () => Promise.resolve(doctorFacts()),
+      }),
+    ).resolves.toMatchObject({
+      command: 'doctor',
+      data: {
+        schemaVersion: 1,
+        status: 'degraded',
+        counts: { passed: 6, warnings: 1, blocking: 0 },
+        checks: [
+          { id: 'application-platform', status: 'pass' },
+          { id: 'cli-distribution', status: 'pass' },
+          { id: 'project-integrity', status: 'pass' },
+          { id: 'harness-pi', status: 'pass' },
+          { id: 'harness-openclaw', status: 'pass' },
+          { id: 'harness-codex', status: 'pass' },
+          { id: 'multica-publish', status: 'warning' },
+        ],
+      },
+    })
+  })
+
   it('exports a verified portable project package and requires an explicit destination', async () => {
     const projectRoot = await root()
     const output = path.join(projectRoot, 'exports', 'fixture.agent-stack-package.json')
@@ -216,6 +642,22 @@ describe('studio CLI contract', () => {
       path.resolve('src/test/fixtures/m7/detected/fixed-descriptor.json'),
     ])
     await run(['component', 'archive', detected.id])
+    expect(
+      (
+        (await run(['component', 'list', '--scope', 'archived'])).data as {
+          components: ProjectComponent[]
+        }
+      ).components.map(({ id }) => id),
+    ).toContain(detected.id)
+    await run(['component', 'restore', detected.id])
+    expect(
+      (
+        (await run(['component', 'list', '--scope', 'active'])).data as {
+          components: ProjectComponent[]
+        }
+      ).components.map(({ id }) => id),
+    ).toContain(detected.id)
+    await run(['component', 'archive', detected.id])
     await run(['component', 'delete', detected.id])
 
     await run(['component', 'import', path.resolve('src/test/fixtures/m22/legacy-adapter')])
@@ -243,6 +685,7 @@ describe('studio CLI contract', () => {
       ),
     ).toBe(true)
     await run(['stack', 'remove', adapter.id])
+    await run(['component', 'archive', adapter.id])
     await run(['component', 'delete', adapter.id])
 
     const audited = await run(['project', 'audit'])

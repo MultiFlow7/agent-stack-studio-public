@@ -10,19 +10,26 @@ import {
   PaperPlaneTilt,
   Trash,
 } from '@phosphor-icons/react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import type { AgentModelReadiness } from '../../../shared/model-auth'
 import type { ExecutionMode } from '../../../shared/agent'
 import type { AgentDetail } from '../../../shared/agent-detail'
 import type { AgentStatusProjection } from '../../../shared/agent-status'
-import { executionModeLabels, experimentStatusLabels, runStatusLabels } from '../copy'
+import {
+  executionModeLabels,
+  publishStatusLabels,
+  runStatusLabels,
+  stackStatusLabels,
+} from '../copy'
 import { ExperimentsView } from './ExperimentsView'
 import { RunsView } from './RunsView'
-import { StackEditorView } from './StackEditorView'
+import { AgentCompositionView } from './AgentCompositionView'
 import { PublishPanel } from './PublishPanel'
 import { SecretReferencesPanel } from './SecretReferencesPanel'
 import { CapabilityView } from './CapabilityView'
 
 interface AgentDetailViewProps {
+  firstChat?: boolean
   initialDetail: AgentDetail
   initialStatus: AgentStatusProjection
   onBack: () => void
@@ -41,15 +48,16 @@ type DetailTab =
 
 const tabs: Array<{ id: DetailTab; label: string }> = [
   { id: 'overview', label: '概览' },
-  { id: 'stack', label: 'Stack' },
+  { id: 'stack', label: 'Harness 与组件' },
   { id: 'capabilities', label: '能力' },
-  { id: 'experiments', label: '实验' },
-  { id: 'runs', label: '运行记录' },
+  { id: 'runs', label: '运行' },
   { id: 'publish', label: '发布' },
+  { id: 'experiments', label: '历史与高级' },
   { id: 'settings', label: '设置' },
 ]
 
 export function AgentDetailView({
+  firstChat = false,
   initialDetail,
   initialStatus,
   onBack,
@@ -75,7 +83,22 @@ export function AgentDetailView({
   const [isSaving, setSaving] = useState(false)
   const [actionError, setActionError] = useState<string>()
   const [feedback, setFeedback] = useState<string>()
+  const [freezeBlocker, setFreezeBlocker] = useState<AgentModelReadiness['blockers'][number]>()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const actionNotice = useRef<HTMLDivElement>(null)
+  const freezeNotice = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!actionError && !feedback) return
+    const frame = window.requestAnimationFrame(() => actionNotice.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [actionError, feedback])
+
+  useEffect(() => {
+    if (!freezeBlocker) return
+    const frame = window.requestAnimationFrame(() => freezeNotice.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [freezeBlocker])
 
   useEffect(() => {
     if (tab !== 'overview') return
@@ -109,10 +132,24 @@ export function AgentDetailView({
     setSaving(true)
     setActionError(undefined)
     setFeedback(undefined)
+    setFreezeBlocker(undefined)
     try {
+      const modelAuth = window.studio.modelAuth
+      if (!modelAuth) throw new Error('模型认证状态服务不可用，未执行冻结。')
+      const modelStatus = await modelAuth.status()
+      if (!modelStatus.readiness.ready) {
+        setFreezeBlocker(
+          modelStatus.readiness.blockers[0] ?? {
+            code: 'verification-required',
+            message: 'Agent 尚未完成模型认证与最小模型验证。',
+            recoveryAction: '前往“Harness 与组件”完成模型与认证。',
+          },
+        )
+        return
+      }
       const version = await window.studio.agents.createVersion(detail.agent.id)
       await refresh()
-      setFeedback(`已从当前草稿创建版本 ${version.versionNumber}。`)
+      setFeedback(`已冻结不可变 Agent Version ${version.versionNumber}。`)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : '无法创建版本。')
     } finally {
@@ -195,6 +232,7 @@ export function AgentDetailView({
   }
 
   const currentVersion = detail.versions[0]
+  const projectBacked = detail.location?.sourcePath?.endsWith('.agent-stack') ?? false
 
   function moveTabFocus(current: DetailTab, direction: -1 | 1): void {
     const index = tabs.findIndex((item) => item.id === current)
@@ -223,7 +261,7 @@ export function AgentDetailView({
               {status.currentVersion ? `版本 ${status.currentVersion.versionNumber}` : '无版本'}
             </span>
             <span className="status-label">
-              Stack {status.stack.status === 'ready' ? '就绪' : '已阻断'}
+              Stack/兼容性 {stackStatusLabels[status.stack.status]}
             </span>
           </div>
           <p>{detail.agent.description || '暂无描述'}</p>
@@ -250,14 +288,16 @@ export function AgentDetailView({
             </>
           ) : (
             <>
-              <button
-                className="button button--quiet"
-                disabled={isSaving}
-                onClick={() => void duplicateAgent()}
-                type="button"
-              >
-                <Copy aria-hidden="true" size={17} /> 复制 Agent
-              </button>
+              {!projectBacked ? (
+                <button
+                  className="button button--quiet"
+                  disabled={isSaving}
+                  onClick={() => void duplicateAgent()}
+                  type="button"
+                >
+                  <Copy aria-hidden="true" size={17} /> 复制 Agent
+                </button>
+              ) : null}
               <button
                 className="button button--quiet"
                 disabled={isSaving}
@@ -280,7 +320,7 @@ export function AgentDetailView({
                 type="button"
               >
                 <Copy aria-hidden="true" size={17} />
-                创建版本
+                冻结 Agent Version
               </button>
             </>
           )}
@@ -314,6 +354,26 @@ export function AgentDetailView({
               {isSaving ? '正在删除…' : '永久删除此 Agent'}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {freezeBlocker ? (
+        <div className="freeze-readiness-blocker" ref={freezeNotice} role="alert" tabIndex={-1}>
+          <div>
+            <strong>暂不能冻结 Agent Version</strong>
+            <p>{freezeBlocker.message}</p>
+            <small>{freezeBlocker.recoveryAction}</small>
+          </div>
+          <button
+            className="button button--secondary"
+            onClick={() => {
+              setTab('stack')
+              window.requestAnimationFrame(() => document.getElementById('tab-stack')?.focus())
+            }}
+            type="button"
+          >
+            前往模型与认证
+          </button>
         </div>
       ) : null}
 
@@ -353,12 +413,17 @@ export function AgentDetailView({
       </div>
 
       {actionError ? (
-        <div className="detail-feedback detail-feedback--error" role="alert">
+        <div
+          className="detail-feedback detail-feedback--error"
+          ref={actionNotice}
+          role="alert"
+          tabIndex={-1}
+        >
           {actionError}
         </div>
       ) : null}
       {feedback ? (
-        <div className="detail-feedback" role="status">
+        <div className="detail-feedback" ref={actionNotice} role="status" tabIndex={-1}>
           <CheckCircle aria-hidden="true" size={18} weight="fill" />
           {feedback}
         </div>
@@ -368,10 +433,10 @@ export function AgentDetailView({
         {tab === 'overview' ? (
           <div className="overview-layout">
             <div className="fact-group">
-              <h2>当前结构</h2>
+              <h2>当前 Agent</h2>
               <dl className="fact-list">
                 <div>
-                  <dt>执行模式</dt>
+                  <dt>运行底座</dt>
                   <dd>{executionModeLabels[detail.draft.executionMode]}</dd>
                 </div>
                 <div>
@@ -381,11 +446,10 @@ export function AgentDetailView({
                   </dd>
                 </div>
                 <div>
-                  <dt>Stack 状态</dt>
+                  <dt>Stack/兼容性状态</dt>
                   <dd>
-                    {status.stack.status === 'ready' ? '就绪' : '已阻断'} ·{' '}
-                    {status.stack.componentCount} 个组件 · {status.stack.ownerCount} 个 Owner ·{' '}
-                    {status.stack.issueCount} 个未解决问题
+                    {stackStatusLabels[status.stack.status]} · {status.stack.componentCount} 个组件
+                    · {status.stack.issueCount} 个待处理问题
                   </dd>
                 </div>
                 <div>
@@ -399,25 +463,11 @@ export function AgentDetailView({
                   </dd>
                 </div>
                 <div>
-                  <dt>最近实验</dt>
-                  <dd>
-                    {status.latestExperiment
-                      ? `${status.latestExperiment.name} · ${
-                          experimentStatusLabels[status.latestExperiment.status]
-                        }`
-                      : '尚无实验'}
-                  </dd>
-                </div>
-                <div>
                   <dt>发布状态</dt>
                   <dd>
                     {status.latestPublish
                       ? `${status.latestPublish.targetLabel} · ${
-                          status.latestPublish.status === 'succeeded'
-                            ? '已成功'
-                            : status.latestPublish.status === 'failed'
-                              ? '失败'
-                              : '进行中'
+                          publishStatusLabels[status.latestPublish.status]
                         } · ${new Date(status.latestPublish.occurredAt).toLocaleString('zh-CN')}`
                       : '尚未发布'}
                   </dd>
@@ -461,13 +511,21 @@ export function AgentDetailView({
           </div>
         ) : null}
 
-        {tab === 'stack' ? <StackEditorView agentId={detail.agent.id} onChanged={refresh} /> : null}
+        {tab === 'stack' ? (
+          <AgentCompositionView agentId={detail.agent.id} onChanged={refresh} />
+        ) : null}
 
         {tab === 'capabilities' ? (
           <CapabilityView agentId={detail.agent.id} onOpenStack={() => setTab('stack')} />
         ) : null}
 
-        {tab === 'runs' ? <RunsView agentId={detail.agent.id} /> : null}
+        {tab === 'runs' ? (
+          <RunsView
+            agentId={detail.agent.id}
+            firstChat={firstChat}
+            onOpenSetup={() => setTab('stack')}
+          />
+        ) : null}
 
         {tab === 'experiments' ? <ExperimentsView agentId={detail.agent.id} /> : null}
 
@@ -480,7 +538,7 @@ export function AgentDetailView({
             <form className="settings-form" onSubmit={(event) => void saveSettings(event)}>
               <div>
                 <h2>Agent 设置</h2>
-                <p>修改只会更新草稿，已有版本不会改变。</p>
+                <p>修改会写入当前 .agent-stack 草稿，已冻结版本不会改变。</p>
               </div>
               <div className="field">
                 <label htmlFor="settings-name">名称</label>
@@ -509,12 +567,20 @@ export function AgentDetailView({
                   onChange={(event) => setExecutionMode(event.target.value as ExecutionMode)}
                   value={executionMode}
                 >
-                  {Object.entries(executionModeLabels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
+                  {detail.agent.executionMode !== 'external-harness' ? (
+                    <option value={detail.agent.executionMode}>
+                      {executionModeLabels[detail.agent.executionMode]}（旧版只读）
                     </option>
-                  ))}
+                  ) : null}
+                  <option value="external-harness">
+                    {executionModeLabels['external-harness']}
+                    {detail.agent.executionMode === 'external-harness' ? '' : '（显式迁移）'}
+                  </option>
                 </select>
+                <span className="field__help">
+                  不能新建或切换到旧 Agent Loop、Workflow、Hybrid 模式；历史 Agent
+                  可保持原样或显式迁移到 Native Harness。
+                </span>
               </div>
               <div className="keychain-foundation">
                 <LockKey aria-hidden="true" size={20} />
@@ -525,7 +591,7 @@ export function AgentDetailView({
               </div>
               <div>
                 <button className="button button--primary" disabled={isSaving} type="submit">
-                  {isSaving ? '正在保存…' : '保存草稿设置'}
+                  {isSaving ? '正在保存…' : '保存到当前项目'}
                 </button>
               </div>
             </form>

@@ -5,7 +5,7 @@ import {
   agentListInputSchema,
   agentLifecycleResultSchema,
   agentSchema,
-  createAgentInputSchema,
+  nativeAgentCreateInputSchema,
   deleteAgentResultSchema,
   duplicateAgentInputSchema,
   updateAgentInputSchema,
@@ -40,7 +40,7 @@ export function registerAgentIpc(options: {
   ipcMain.handle(
     ipcChannels.agentsCreate,
     createValidatedHandler({
-      input: createAgentInputSchema,
+      input: nativeAgentCreateInputSchema,
       output: agentSchema,
       handle: (input) => agents.create(input),
     }),

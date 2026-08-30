@@ -47,6 +47,25 @@ const dataLocations = [
 }))
 
 function installApi() {
+  const doctorRun = vi.fn(() =>
+    Promise.resolve({
+      schemaVersion: 1 as const,
+      checkedAt: '2026-08-23T05:00:00.000Z',
+      status: 'degraded' as const,
+      counts: { passed: 6, warnings: 1, blocking: 0 },
+      checks: [
+        {
+          id: 'multica-publish',
+          category: 'publish' as const,
+          status: 'warning' as const,
+          title: 'Multica 发布',
+          summary: '未找到 Multica CLI。',
+          remediation: '安装官方 Multica CLI v0.4.32 或更高版本。',
+          facts: { status: 'not-installed', runtimeCount: 0, onlineRuntimeCount: 0 },
+        },
+      ],
+    }),
+  )
   const createBackup = vi.fn(() =>
     Promise.resolve({
       status: 'saved' as const,
@@ -103,8 +122,9 @@ function installApi() {
       applyRestore,
       revealDataLocation,
     },
+    doctor: { run: doctorRun },
   } as unknown as StudioApi
-  return { createBackup, selectRestore, applyRestore, revealDataLocation }
+  return { createBackup, selectRestore, applyRestore, revealDataLocation, doctorRun }
 }
 
 describe('SettingsView', () => {
@@ -124,6 +144,21 @@ describe('SettingsView', () => {
     await waitFor(() => expect(createBackup).toHaveBeenCalledTimes(1))
     expect(await screen.findByText(/Agent Stack Studio Backup 20260819T123456Z/)).toBeVisible()
     expect(screen.getByText(/3 个文件，2.0 KB/)).toBeVisible()
+  })
+
+  it('runs the shared read-only doctor and renders degraded Multica readiness', async () => {
+    const { doctorRun } = installApi()
+    const user = userEvent.setup()
+    render(<SettingsView />)
+
+    const doctorButton = await screen.findByRole('button', { name: '运行完整诊断' })
+    doctorButton.focus()
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => expect(doctorRun).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('可用，但存在降级')).toBeVisible()
+    expect(screen.getByText('未找到 Multica CLI。')).toBeVisible()
+    expect(screen.getByText(/Multica CLI v0\.4\.32/)).toBeVisible()
   })
 
   it('requires explicit confirmation before staging a restore and restart', async () => {

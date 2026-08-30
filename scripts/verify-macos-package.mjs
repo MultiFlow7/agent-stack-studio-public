@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, readFile, readdir } from 'node:fs/promises'
+import { access, constants, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -37,9 +37,9 @@ async function plistValue(plistPath, key) {
   return stdout.trim()
 }
 
-async function commandSucceeded(command, args) {
+async function commandSucceeded(command, args, options = {}) {
   try {
-    const result = await execute(command, args)
+    const result = await execute(command, args, options)
     return { succeeded: true, stdout: result.stdout, stderr: result.stderr }
   } catch (error) {
     return {
@@ -91,7 +91,7 @@ export async function verifyMacosPackage(options = {}) {
     const source = await readFile(path.join(projectPath, relativePath))
     if (!packaged.equals(source)) throw new Error(`打包分发契约与源文件不一致：${relativePath}`)
   }
-  const cliPath = path.join(
+  const cliRuntimePath = path.join(
     applicationPath,
     'Contents',
     'Resources',
@@ -100,7 +100,21 @@ export async function verifyMacosPackage(options = {}) {
     'cli',
     'studio.mjs',
   )
-  await access(cliPath)
+  await access(cliRuntimePath)
+  const cliPath = path.join(applicationPath, 'Contents', 'Resources', 'bin', 'studio')
+  await access(cliPath, constants.X_OK)
+  const cliVersion = await commandSucceeded(cliPath, ['--version', '--json'], {
+    env: { PATH: '/usr/bin:/bin' },
+  })
+  if (!cliVersion.succeeded) {
+    throw new Error(
+      `包内 CLI 无法在无 Node PATH 下运行：${cliVersion.stderr.trim() || 'unknown error'}`,
+    )
+  }
+  const cliEnvelope = JSON.parse(cliVersion.stdout)
+  if (!cliEnvelope.ok || cliEnvelope.data?.version !== version) {
+    throw new Error(`包内 CLI 版本不一致：${cliVersion.stdout.trim()}`)
+  }
   verifyPackagedSecurity(applicationPath)
 
   const architecture = path.basename(path.dirname(applicationPath)) === 'mac' ? 'x64' : 'arm64'

@@ -17,6 +17,7 @@ const nodeKindLabels: Record<WorkflowNode['kind'], string> = {
 }
 
 export function WorkflowSection({ project, pending, run }: WorkflowSectionProps) {
+  const [migrationMode, setMigrationMode] = useState(false)
   const [creating, setCreating] = useState(false)
   const [workflowName, setWorkflowName] = useState('')
   const [workflowDescription, setWorkflowDescription] = useState('')
@@ -105,21 +106,47 @@ export function WorkflowSection({ project, pending, run }: WorkflowSectionProps)
     <section className="project-section workflow-section" aria-labelledby="project-workflows-title">
       <header>
         <div>
-          <h2 id="project-workflows-title">版本化 Workflow DAG</h2>
-          <p>结构化编辑、只读图示与不可变版本；保存时拒绝直接和间接循环。</p>
+          <h2 id="project-workflows-title">旧版 Workflow 历史</h2>
+          <p>默认只读保留 DAG 与不可变版本；Native Harness 是新 Agent 的普通路径。</p>
         </div>
-        <button
-          className="button button--secondary"
-          disabled={Boolean(pending)}
-          onClick={() => setCreating(true)}
-          type="button"
-        >
-          <Plus aria-hidden="true" size={17} />
-          新建 Workflow
-        </button>
+        <div>
+          <button
+            className="button button--secondary"
+            disabled={Boolean(pending)}
+            onClick={() => {
+              setMigrationMode((current) => !current)
+              setCreating(false)
+              setEditingWorkflowId(undefined)
+              setEdgeWorkflowId(undefined)
+            }}
+            type="button"
+          >
+            {migrationMode ? '退出旧版迁移工具' : '进入旧版 Workflow 迁移工具'}
+          </button>
+          {migrationMode ? (
+            <button
+              className="button button--secondary"
+              disabled={Boolean(pending)}
+              onClick={() => setCreating(true)}
+              type="button"
+            >
+              <Plus aria-hidden="true" size={17} />
+              新建 Workflow
+            </button>
+          ) : null}
+        </div>
       </header>
 
-      {creating ? (
+      <div className="legacy-boundary-note">
+        <strong>{migrationMode ? '旧版迁移工具已开启' : '历史事实只读'}</strong>
+        <span>
+          {migrationMode
+            ? '仅用于整理、冻结或导出旧 Workflow；这不是新 Agent 的运行建议。'
+            : '不会创建、修改或冻结 Workflow。需要收束旧项目时，再显式进入迁移工具。'}
+        </span>
+      </div>
+
+      {creating && migrationMode ? (
         <div className="workflow-form" role="group" aria-label="新建 Workflow">
           <label>
             名称
@@ -161,7 +188,11 @@ export function WorkflowSection({ project, pending, run }: WorkflowSectionProps)
       {project.workflows.length === 0 ? (
         <div className="project-inline-empty">
           <GitBranch aria-hidden="true" size={25} />
-          <p>尚无 Workflow。创建草稿后添加结构化节点和有向边，空 Workflow 不能冻结。</p>
+          <p>
+            {migrationMode
+              ? '尚无旧 Workflow。迁移工具可创建草稿以承接历史事实。'
+              : '当前没有旧 Workflow 事实；普通 Agent 路径不会自动生成。'}
+          </p>
         </div>
       ) : (
         <div className="workflow-list">
@@ -175,46 +206,48 @@ export function WorkflowSection({ project, pending, run }: WorkflowSectionProps)
                     {workflow.edges.length} 边 · {workflow.versions.length} Version
                   </small>
                 </div>
-                <div>
-                  <button
-                    className="button button--secondary"
-                    disabled={Boolean(pending)}
-                    onClick={() => setEditingWorkflowId(workflow.id)}
-                    type="button"
-                  >
-                    添加节点
-                  </button>
-                  <button
-                    className="button button--secondary"
-                    disabled={workflow.nodes.length < 2 || Boolean(pending)}
-                    onClick={() => setEdgeWorkflowId(workflow.id)}
-                    type="button"
-                  >
-                    添加连线
-                  </button>
-                  <button
-                    className="button button--primary"
-                    disabled={workflow.nodes.length === 0 || Boolean(pending)}
-                    onClick={() =>
-                      void run(
-                        `workflow-freeze-${workflow.id}`,
-                        () =>
-                          window.studio.studioProject!.freezeWorkflow({
-                            workflowId: workflow.id,
-                            expectedRevision: project.revision,
-                          }),
-                        '已创建或复用相同的 Workflow Version。',
-                      )
-                    }
-                    type="button"
-                  >
-                    <Snowflake aria-hidden="true" size={16} />
-                    冻结 Workflow
-                  </button>
-                </div>
+                {migrationMode ? (
+                  <div>
+                    <button
+                      className="button button--secondary"
+                      disabled={Boolean(pending)}
+                      onClick={() => setEditingWorkflowId(workflow.id)}
+                      type="button"
+                    >
+                      添加节点
+                    </button>
+                    <button
+                      className="button button--secondary"
+                      disabled={workflow.nodes.length < 2 || Boolean(pending)}
+                      onClick={() => setEdgeWorkflowId(workflow.id)}
+                      type="button"
+                    >
+                      添加连线
+                    </button>
+                    <button
+                      className="button button--primary"
+                      disabled={workflow.nodes.length === 0 || Boolean(pending)}
+                      onClick={() =>
+                        void run(
+                          `workflow-freeze-${workflow.id}`,
+                          () =>
+                            window.studio.studioProject!.freezeWorkflow({
+                              workflowId: workflow.id,
+                              expectedRevision: project.revision,
+                            }),
+                          '已创建或复用相同的 Workflow Version。',
+                        )
+                      }
+                      type="button"
+                    >
+                      <Snowflake aria-hidden="true" size={16} />
+                      冻结 Workflow
+                    </button>
+                  </div>
+                ) : null}
               </header>
 
-              {editingWorkflowId === workflow.id ? (
+              {migrationMode && editingWorkflowId === workflow.id ? (
                 <div
                   className="workflow-form"
                   role="group"
@@ -312,7 +345,7 @@ export function WorkflowSection({ project, pending, run }: WorkflowSectionProps)
                 </div>
               ) : null}
 
-              {edgeWorkflowId === workflow.id ? (
+              {migrationMode && edgeWorkflowId === workflow.id ? (
                 <div
                   className="workflow-form workflow-edge-form"
                   role="group"
@@ -374,26 +407,28 @@ export function WorkflowSection({ project, pending, run }: WorkflowSectionProps)
                         <strong>{node.name}</strong>
                         <code>{node.id.slice(0, 8)}</code>
                       </div>
-                      <button
-                        className="icon-button"
-                        aria-label={`删除节点 ${node.name}`}
-                        disabled={Boolean(pending)}
-                        onClick={() =>
-                          void run(
-                            `workflow-node-remove-${node.id}`,
-                            () =>
-                              window.studio.studioProject!.removeWorkflowNode({
-                                workflowId: workflow.id,
-                                nodeId: node.id,
-                                expectedRevision: project.revision,
-                              }),
-                            '节点及其连线已删除，历史 Version 不变。',
-                          )
-                        }
-                        type="button"
-                      >
-                        <Trash aria-hidden="true" size={16} />
-                      </button>
+                      {migrationMode ? (
+                        <button
+                          className="icon-button"
+                          aria-label={`删除节点 ${node.name}`}
+                          disabled={Boolean(pending)}
+                          onClick={() =>
+                            void run(
+                              `workflow-node-remove-${node.id}`,
+                              () =>
+                                window.studio.studioProject!.removeWorkflowNode({
+                                  workflowId: workflow.id,
+                                  nodeId: node.id,
+                                  expectedRevision: project.revision,
+                                }),
+                              '节点及其连线已删除，历史 Version 不变。',
+                            )
+                          }
+                          type="button"
+                        >
+                          <Trash aria-hidden="true" size={16} />
+                        </button>
+                      ) : null}
                     </li>
                   ))}
                 </ol>
@@ -405,25 +440,27 @@ export function WorkflowSection({ project, pending, run }: WorkflowSectionProps)
                       <code>{workflow.nodes.find(({ id }) => id === edge.from)?.name}</code>
                       <ArrowRight aria-hidden="true" size={16} />
                       <code>{workflow.nodes.find(({ id }) => id === edge.to)?.name}</code>
-                      <button
-                        className="icon-button"
-                        aria-label="删除 Workflow 连线"
-                        onClick={() =>
-                          void run(
-                            `workflow-edge-remove-${edge.id}`,
-                            () =>
-                              window.studio.studioProject!.removeWorkflowEdge({
-                                workflowId: workflow.id,
-                                edgeId: edge.id,
-                                expectedRevision: project.revision,
-                              }),
-                            'DAG 连线已删除。',
-                          )
-                        }
-                        type="button"
-                      >
-                        <Trash aria-hidden="true" size={15} />
-                      </button>
+                      {migrationMode ? (
+                        <button
+                          className="icon-button"
+                          aria-label="删除 Workflow 连线"
+                          onClick={() =>
+                            void run(
+                              `workflow-edge-remove-${edge.id}`,
+                              () =>
+                                window.studio.studioProject!.removeWorkflowEdge({
+                                  workflowId: workflow.id,
+                                  edgeId: edge.id,
+                                  expectedRevision: project.revision,
+                                }),
+                              'DAG 连线已删除。',
+                            )
+                          }
+                          type="button"
+                        >
+                          <Trash aria-hidden="true" size={15} />
+                        </button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

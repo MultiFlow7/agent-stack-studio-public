@@ -8,6 +8,11 @@ export async function verifyCliPackage(options = {}) {
   const packageJson = JSON.parse(await readFile(path.join(projectPath, 'package.json'), 'utf8'))
   const cliPath = path.join(projectPath, packageJson.bin.studio)
   await access(cliPath, constants.X_OK)
+  await Promise.all(
+    ['publish-host.mjs', 'model-auth-host.mjs'].map((host) =>
+      access(path.join(path.dirname(cliPath), host), constants.R_OK),
+    ),
+  )
   const contents = await readFile(cliPath, 'utf8')
   if (!contents.startsWith('#!/usr/bin/env -S node --use-env-proxy\n')) {
     throw new Error('studio CLI 缺少带环境代理支持的可执行 shebang。')
